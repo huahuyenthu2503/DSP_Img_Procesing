@@ -8,7 +8,7 @@
 DSP_Img_Procesing/
 ├── main.py                 # Entry point chính
 ├── config.py               # Cấu hình chung
-├── README.md               # File này
+├── README.md              
 │
 ├── ui/                     # Giao diện người dùng
 │   ├── __init__.py
@@ -17,12 +17,12 @@ DSP_Img_Procesing/
 │
 ├── image_processing/       # Xử lý ảnh
 │   ├── __init__.py
-│   ├── edge_detection.py   # (Sẽ được tạo)
-│   ├── thresholding.py     # (Sẽ được tạo)
-│   └── filters.py          # (Sẽ được tạo)
+│   ├── edge_detection.py   
+│   ├── thresholding.py     
+│   └── filters.py          
 │
 ├── image_editing/          # Chỉnh sửa ảnh
-│   └── Image_Editing.py    # Đã có sẵn
+│   └── Image_Editing.py    
 │
 └── utils/                  # Tiện ích chung
     ├── __init__.py
