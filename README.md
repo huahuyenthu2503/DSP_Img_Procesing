@@ -36,12 +36,6 @@ DSP_Img_Procesing/
 python main.py
 ```
 
-## Lưu ý
-
-- Thư mục gốc "Source Code" được giữ nguyên để tránh mất dữ liệu
-- Các hàm xử lý ảnh hiện tại vẫn gọi từ App.py gốc để đảm bảo tương thích
-- Có thể dần dần refactor các hàm vào các module tương ứng
-
 ## Dependencies
 
 - tkinter
