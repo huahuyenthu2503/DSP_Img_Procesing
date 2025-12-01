@@ -36,6 +36,10 @@ class ImageEditorApp:
         self.edited_image = None
         self.undo_stack = []
         self.webcam_capture = None
+        self.webcam_active = False
+        self.webcam_cap = None
+        self.captured_images_list = []
+        self.original_canvas_state = None  # Lưu trạng thái canvas gốc
         self.current_filter = "Không"
         self.filter_intensity = 1.0
         # Slider riêng cho từng bộ lọc
@@ -136,16 +140,16 @@ class ImageEditorApp:
         btn_style = {'font': ("Arial", 10), 'relief': tk.RAISED, 'bd': 2, 
                     'cursor': 'hand2', 'padx': 10, 'pady': 5}
         
-        tk.Button(file_frame, text="📁 Mở File", 
+        tk.Button(file_frame, text="Mở File", 
                  bg=self.colors['bg_button'], fg='white',
                  command=self.open_image, **btn_style).pack(fill=tk.X, pady=5)
         
-        tk.Button(file_frame, text="📷 Mở Webcam", 
+        tk.Button(file_frame, text="Mở Webcam", 
                  bg=self.colors['success'], fg='white',
                  command=self.open_webcam, **btn_style).pack(fill=tk.X, pady=5)
         
         # Nút AI
-        tk.Button(file_frame, text="🤖 AI Tự Động Sửa Ảnh", 
+        tk.Button(file_frame, text=" AI Tự Động Sửa Ảnh", 
                  bg=self.colors['accent'], fg='white',
                  command=self.ai_auto_edit, **btn_style).pack(fill=tk.X, pady=5)
         
@@ -197,14 +201,14 @@ class ImageEditorApp:
         self.filter_combo.pack(pady=5)
         self.filter_combo.bind("<<ComboboxSelected>>", self.on_filter_change)
         
-        # Slider riêng cho từng bộ lọc
+        # Slider riêng cho từng bộ lọc - Tăng phạm vi để hiệu ứng rõ hơn
         # Slider cho Viền (Contour)
         self.contour_slider, self.contour_slider_frame = self.add_slider_with_frame(
-            filter_frame, "Viền (Đậm/Nhẹ)", 0.1, 3.0, 1.0, self.on_contour_change)
+            filter_frame, "Viền (Đậm/Nhẹ)", 0.1, 5.0, 1.0, self.on_contour_change)
         
         # Slider cho Làm Mờ (Blur)
         self.blur_filter_slider, self.blur_filter_slider_frame = self.add_slider_with_frame(
-            filter_frame, "Làm Mờ (Đậm/Nhẹ)", 0.5, 10.0, 2.0, self.on_blur_filter_change)
+            filter_frame, "Làm Mờ (Đậm/Nhẹ)", 0.5, 15.0, 2.0, self.on_blur_filter_change)
         
         # Slider cho Đen Trắng
         self.bw_slider, self.bw_slider_frame = self.add_slider_with_frame(
@@ -212,19 +216,19 @@ class ImageEditorApp:
         
         # Slider cho Chi Tiết
         self.detail_slider, self.detail_slider_frame = self.add_slider_with_frame(
-            filter_frame, "Chi Tiết (Đậm/Nhẹ)", 0.1, 3.0, 1.0, self.on_detail_change)
+            filter_frame, "Chi Tiết (Đậm/Nhẹ)", 0.1, 5.0, 1.0, self.on_detail_change)
         
         # Slider cho Tăng Cạnh
         self.edge_slider, self.edge_slider_frame = self.add_slider_with_frame(
-            filter_frame, "Tăng Cạnh (Đậm/Nhẹ)", 0.1, 3.0, 1.0, self.on_edge_change)
+            filter_frame, "Tăng Cạnh (Đậm/Nhẹ)", 0.1, 5.0, 1.0, self.on_edge_change)
         
         # Slider cho Làm Mịn
         self.smooth_slider, self.smooth_slider_frame = self.add_slider_with_frame(
-            filter_frame, "Làm Mịn (Đậm/Nhẹ)", 0.1, 3.0, 1.0, self.on_smooth_change)
+            filter_frame, "Làm Mịn (Đậm/Nhẹ)", 0.1, 5.0, 1.0, self.on_smooth_change)
         
         # Slider cho Làm Nổi
         self.emboss_slider, self.emboss_slider_frame = self.add_slider_with_frame(
-            filter_frame, "Làm Nổi (Đậm/Nhẹ)", 0.1, 3.0, 1.0, self.on_emboss_change)
+            filter_frame, "Làm Nổi (Đậm/Nhẹ)", 0.1, 5.0, 1.0, self.on_emboss_change)
         
         # Ẩn các slider ban đầu, chỉ hiện khi chọn bộ lọc tương ứng
         self.hide_filter_sliders()
@@ -237,52 +241,339 @@ class ImageEditorApp:
                                      padx=10, pady=10)
         action_frame.pack(fill=tk.X, padx=15, pady=10)
         
-        tk.Button(action_frame, text="💾 Lưu Ảnh", 
+        tk.Button(action_frame, text="Lưu Ảnh", 
                  bg=self.colors['success'], fg='white',
                  command=self.save_image, **btn_style).pack(fill=tk.X, pady=3)
         
-        tk.Button(action_frame, text="💾 Lưu Nhanh", 
+        tk.Button(action_frame, text="Lưu Nhanh", 
                  bg=self.colors['bg_button'], fg='white',
                  command=self.quick_save_image, **btn_style).pack(fill=tk.X, pady=3)
-        tk.Button(action_frame, text="↺ Hoàn Tác", 
+        tk.Button(action_frame, text="Hoàn Tác", 
                  bg=self.colors['warning'], fg='white',
                  command=self.undo_last_change, **btn_style).pack(fill=tk.X, pady=3)
-        tk.Button(action_frame, text="🔄 Đặt Lại", 
+        tk.Button(action_frame, text="Đặt Lại", 
                  bg=self.colors['bg_secondary'], fg='white',
                  command=self.reset_image, **btn_style).pack(fill=tk.X, pady=3)
-        tk.Button(action_frame, text="❌ Thoát", 
+        tk.Button(action_frame, text="Thoát", 
                  bg=self.colors['accent'], fg='white',
                  command=root.quit, **btn_style).pack(fill=tk.X, pady=3)
         
         # Canvas cho ảnh gốc và đã chỉnh sửa
-        img_display_frame = tk.Frame(self.image_panel, bg=self.colors['bg_main'])
-        img_display_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        self.img_display_frame = tk.Frame(self.image_panel, bg=self.colors['bg_main'])
+        self.img_display_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
         
         # Ảnh gốc
-        original_frame = tk.Frame(img_display_frame, bg=self.colors['bg_panel'], relief=tk.RAISED, bd=2)
-        original_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10)
+        self.original_frame = tk.Frame(self.img_display_frame, bg=self.colors['bg_panel'], relief=tk.RAISED, bd=2)
+        self.original_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10)
         
-        tk.Label(original_frame, text="Ảnh Gốc", 
+        tk.Label(self.original_frame, text="Ảnh Gốc", 
                 font=("Arial", 14, "bold"), 
                 bg=self.colors['bg_panel'], 
                 fg=self.colors['text_light']).pack(pady=10)
         
-        self.original_canvas = tk.Canvas(original_frame, 
+        self.original_canvas = tk.Canvas(self.original_frame, 
                                         bg='#1A1A1A', highlightthickness=0)
         self.original_canvas.pack(fill=tk.BOTH, expand=True, pady=10, padx=10)
         
         # Ảnh đã chỉnh sửa
-        edited_frame = tk.Frame(img_display_frame, bg=self.colors['bg_panel'], relief=tk.RAISED, bd=2)
-        edited_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10)
+        self.edited_frame = tk.Frame(self.img_display_frame, bg=self.colors['bg_panel'], relief=tk.RAISED, bd=2)
+        self.edited_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10)
         
-        tk.Label(edited_frame, text="Ảnh Đã Chỉnh Sửa", 
+        tk.Label(self.edited_frame, text="Ảnh Đã Chỉnh Sửa", 
                 font=("Arial", 14, "bold"), 
                 bg=self.colors['bg_panel'], 
                 fg=self.colors['text_light']).pack(pady=10)
         
-        self.edited_canvas = tk.Canvas(edited_frame, 
+        # Container cho canvas và gallery
+        self.edited_container = tk.Frame(self.edited_frame, bg=self.colors['bg_panel'])
+        self.edited_container.pack(fill=tk.BOTH, expand=True, pady=10, padx=10)
+        
+        self.edited_canvas = tk.Canvas(self.edited_container, 
                                       bg='#1A1A1A', highlightthickness=0)
-        self.edited_canvas.pack(fill=tk.BOTH, expand=True, pady=10, padx=10)
+        self.edited_canvas.pack(fill=tk.BOTH, expand=True)
+        
+        # Gallery cho ảnh đã chụp (sẽ hiện khi ở chế độ webcam)
+        gallery_frame = tk.Frame(self.edited_frame, bg=self.colors['bg_panel'], height=120)
+        gallery_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+        
+        tk.Label(gallery_frame, text="Ảnh Đã Chụp", 
+                font=("Arial", 10, "bold"), 
+                bg=self.colors['bg_panel'], 
+                fg=self.colors['text_light']).pack()
+        
+        # Canvas và scrollbar cho gallery
+        gallery_canvas_frame = tk.Frame(gallery_frame, bg=self.colors['bg_panel'])
+        gallery_canvas_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+        
+        self.gallery_canvas = tk.Canvas(gallery_canvas_frame, bg=self.colors['bg_main'], 
+                                       height=100, highlightthickness=0)
+        gallery_scrollbar = tk.Scrollbar(gallery_canvas_frame, orient="horizontal", 
+                                        command=self.gallery_canvas.xview)
+        self.gallery_canvas.configure(xscrollcommand=gallery_scrollbar.set)
+        
+        self.gallery_inner = tk.Frame(self.gallery_canvas, bg=self.colors['bg_main'])
+        self.gallery_canvas.create_window((0, 0), window=self.gallery_inner, anchor="nw")
+        
+        gallery_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
+        self.gallery_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        # Ẩn gallery ban đầu
+        gallery_frame.pack_forget()
+        self.gallery_frame = gallery_frame
+        
+        # Tạo khung webcam lớn (sẽ hiện khi mở webcam)
+        self.webcam_frame = tk.Frame(self.img_display_frame, bg=self.colors['bg_panel'], relief=tk.RAISED, bd=2)
+        tk.Label(self.webcam_frame, text="📷 Webcam", 
+                font=("Arial", 16, "bold"), 
+                bg=self.colors['bg_panel'], 
+                fg=self.colors['text_light']).pack(pady=10)
+        
+        # Container chính chia làm 2 bên
+        self.webcam_main_container = tk.Frame(self.webcam_frame, bg=self.colors['bg_panel'])
+        # Sẽ pack sau khi tạo xong các thành phần
+        
+        # Bên trái: Canvas webcam
+        self.webcam_left_frame = tk.Frame(self.webcam_main_container, bg=self.colors['bg_panel'])
+        
+        # Bên phải: Gallery, scrollbar, và các nút
+        self.webcam_right_frame = tk.Frame(self.webcam_main_container, bg=self.colors['bg_panel'])
+        
+        # Gallery cho ảnh đã chụp trong webcam frame (hiển thị dọc)
+        self.webcam_gallery_frame = tk.Frame(self.webcam_right_frame, bg=self.colors['bg_panel'])
+        
+        # Canvas và scrollbar cho gallery webcam (scrollbar dọc) - sát nhau, sát bên phải, không có padding
+        webcam_gallery_canvas_frame = tk.Frame(self.webcam_gallery_frame, bg=self.colors['bg_panel'])
+        webcam_gallery_canvas_frame.pack(fill=tk.BOTH, expand=True, pady=0, padx=(0, 0))
+        
+        self.webcam_gallery_canvas = tk.Canvas(webcam_gallery_canvas_frame, bg=self.colors['bg_main'], 
+                                       highlightthickness=0)
+        webcam_gallery_scrollbar = tk.Scrollbar(webcam_gallery_canvas_frame, orient="vertical", 
+                                        command=self.webcam_gallery_canvas.yview,
+                                        width=15)  # Đảm bảo scrollbar có độ rộng đủ để kéo
+        self.webcam_gallery_canvas.configure(yscrollcommand=webcam_gallery_scrollbar.set)
+        self.webcam_gallery_scrollbar = webcam_gallery_scrollbar  # Lưu reference
+        
+        self.webcam_gallery_inner = tk.Frame(self.webcam_gallery_canvas, bg=self.colors['bg_main'])
+        # Tạo window với anchor nw nhưng sẽ căn phải nội dung bên trong
+        self.webcam_gallery_window = self.webcam_gallery_canvas.create_window((0, 0), window=self.webcam_gallery_inner, anchor="nw")
+        
+        # Cấu hình để scrollbar hoạt động đúng (scrollbar dọc) và căn phải nội dung
+        def configure_webcam_gallery_scroll(event=None):
+            # Cập nhật scroll region dựa trên nội dung thực tế
+            self.webcam_gallery_canvas.update_idletasks()
+            bbox = self.webcam_gallery_canvas.bbox("all")
+            if bbox:
+                # Mở rộng scroll region để bao gồm tất cả nội dung (theo chiều dọc)
+                self.webcam_gallery_canvas.configure(scrollregion=(0, 0, bbox[2], bbox[3]))
+            # Căn phải window khi canvas resize
+            canvas_width = self.webcam_gallery_canvas.winfo_width()
+            if canvas_width > 1:
+                inner_width = self.webcam_gallery_inner.winfo_reqwidth()
+                if inner_width < canvas_width:
+                    # Căn phải bằng cách đặt x position
+                    x_pos = canvas_width - inner_width
+                    self.webcam_gallery_canvas.coords(self.webcam_gallery_window, x_pos, 0)
+        
+        self.webcam_gallery_inner.bind("<Configure>", configure_webcam_gallery_scroll)
+        # Cũng bind cho canvas để cập nhật khi canvas resize
+        self.webcam_gallery_canvas.bind("<Configure>", configure_webcam_gallery_scroll)
+        
+        # Cho phép scroll bằng mouse wheel khi hover vào canvas (scroll dọc)
+        def on_canvas_scroll(event):
+            # Chỉ scroll khi hover vào canvas hoặc inner frame
+            widget = event.widget
+            if widget == self.webcam_gallery_canvas or widget == self.webcam_gallery_inner or str(widget).endswith('webcam_gallery_inner'):
+                if event.delta:
+                    # Windows/MacOS
+                    self.webcam_gallery_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+                elif event.num == 4:
+                    # Linux
+                    self.webcam_gallery_canvas.yview_scroll(-1, "units")
+                elif event.num == 5:
+                    self.webcam_gallery_canvas.yview_scroll(1, "units")
+        
+        # Bind cho canvas và inner frame
+        def bind_scroll_to_widget(widget):
+            widget.bind("<MouseWheel>", on_canvas_scroll)
+            widget.bind("<Button-4>", on_canvas_scroll)
+            widget.bind("<Button-5>", on_canvas_scroll)
+        
+        bind_scroll_to_widget(self.webcam_gallery_canvas)
+        bind_scroll_to_widget(self.webcam_gallery_inner)
+        
+        # Đảm bảo scrollbar luôn hiển thị và có thể kéo được (scrollbar dọc)
+        # Pack scrollbar trước, sau đó pack canvas (scrollbar sát bên phải)
+        webcam_gallery_scrollbar.pack(side=tk.RIGHT, fill=tk.Y, padx=(0, 0))
+        self.webcam_gallery_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 0))
+        
+        # Ẩn gallery webcam ban đầu
+        self.webcam_gallery_frame.pack_forget()
+        
+        # Canvas webcam lớn - bên trái (giảm padding để mở rộng)
+        self.webcam_canvas = tk.Canvas(self.webcam_left_frame, 
+                                      bg='#1A1A1A', highlightthickness=0)
+        self.webcam_canvas.pack(fill=tk.BOTH, expand=True, pady=5, padx=5)
+        
+        # Container cho nút điều khiển webcam (nhỏ hơn) - bên phải
+        self.webcam_control_container = tk.Frame(self.webcam_right_frame, bg=self.colors['bg_panel'])
+        # Sẽ pack sau gallery
+        
+        # Ẩn webcam frame ban đầu
+        self.webcam_frame.pack_forget()
+    
+    # ========== CÁC HÀM BỘ LỌC TỐI ƯU SỬ DỤNG OPENCV VÀ NUMPY ==========
+    
+    def apply_filter_contour_optimized(self, img_array, intensity):
+        """Bộ lọc viền tối ưu sử dụng OpenCV"""
+        if len(img_array.shape) == 3:
+            gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+        else:
+            gray = img_array
+        
+        # Sử dụng Canny edge detection với threshold động
+        low_threshold = max(1, int(50 * (1 / intensity)))
+        high_threshold = max(2, int(150 * (1 / intensity)))
+        edges = cv2.Canny(gray, low_threshold, high_threshold)
+        
+        # Chuyển đổi edges thành RGB
+        if len(img_array.shape) == 3:
+            edges_rgb = cv2.cvtColor(edges, cv2.COLOR_GRAY2RGB)
+        else:
+            edges_rgb = edges
+        
+        # Blend với ảnh gốc
+        blend_ratio = min(1.0, intensity / 3.0)
+        result = cv2.addWeighted(img_array, 1 - blend_ratio, edges_rgb, blend_ratio, 0)
+        return result
+    
+    def apply_filter_blur_optimized(self, img_array, intensity):
+        """Bộ lọc làm mờ tối ưu sử dụng OpenCV GaussianBlur"""
+        kernel_size = int(intensity * 2) * 2 + 1  # Đảm bảo số lẻ
+        kernel_size = max(3, min(kernel_size, 31))  # Giới hạn từ 3 đến 31
+        return cv2.GaussianBlur(img_array, (kernel_size, kernel_size), 0)
+    
+    def apply_filter_bw_optimized(self, img_array, intensity):
+        """Bộ lọc đen trắng tối ưu"""
+        if len(img_array.shape) == 3:
+            gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+            gray_rgb = cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
+        else:
+            gray_rgb = img_array
+        
+        # Blend với ảnh gốc
+        result = cv2.addWeighted(img_array, 1 - intensity, gray_rgb, intensity, 0)
+        return result
+    
+    def apply_filter_detail_optimized(self, img_array, intensity):
+        """Bộ lọc chi tiết tối ưu sử dụng Unsharp Masking"""
+        # Chuyển sang grayscale để tính toán
+        if len(img_array.shape) == 3:
+            gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+        else:
+            gray = img_array
+        
+        # Tạo unsharp mask với sigma động
+        sigma = max(0.5, intensity * 1.5)
+        kernel_size = int(sigma * 4) * 2 + 1  # Đảm bảo số lẻ
+        kernel_size = max(3, min(kernel_size, 21))  # Giới hạn từ 3 đến 21
+        blurred = cv2.GaussianBlur(gray, (kernel_size, kernel_size), sigma)
+        
+        # Unsharp masking
+        unsharp_mask = cv2.addWeighted(gray, 1.0 + intensity * 0.5, blurred, -intensity * 0.5, 0)
+        unsharp_mask = np.clip(unsharp_mask, 0, 255).astype(np.uint8)
+        
+        # Áp dụng cho từng kênh màu
+        if len(img_array.shape) == 3:
+            result = img_array.copy().astype(np.float32)
+            gray_float = gray.astype(np.float32) + 1e-5  # Tránh chia cho 0
+            unsharp_float = unsharp_mask.astype(np.float32)
+            enhancement = unsharp_float / gray_float
+            
+            for i in range(3):
+                channel = img_array[:, :, i].astype(np.float32)
+                result[:, :, i] = np.clip(channel * enhancement, 0, 255)
+            return result.astype(np.uint8)
+        else:
+            return unsharp_mask
+    
+    def apply_filter_edge_enhance_optimized(self, img_array, intensity):
+        """Bộ lọc tăng cạnh tối ưu sử dụng Laplacian"""
+        if len(img_array.shape) == 3:
+            gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+        else:
+            gray = img_array
+        
+        # Laplacian edge detection
+        laplacian = cv2.Laplacian(gray, cv2.CV_64F)
+        laplacian = np.absolute(laplacian)
+        laplacian = np.uint8(np.clip(laplacian, 0, 255))
+        
+        # Chuyển sang RGB
+        if len(img_array.shape) == 3:
+            laplacian_rgb = cv2.cvtColor(laplacian, cv2.COLOR_GRAY2RGB)
+        else:
+            laplacian_rgb = laplacian
+        
+        # Blend với ảnh gốc
+        blend_ratio = min(1.0, intensity / 3.0)
+        result = cv2.addWeighted(img_array, 1.0, laplacian_rgb, blend_ratio, 0)
+        return result
+    
+    def apply_filter_smooth_optimized(self, img_array, intensity):
+        """Bộ lọc làm mịn tối ưu sử dụng Bilateral Filter"""
+        if len(img_array.shape) == 3:
+            d = int(intensity * 5)  # Diameter
+            d = max(1, min(d, 15))  # Giới hạn từ 1 đến 15
+            return cv2.bilateralFilter(img_array, d, 80, 80)
+        else:
+            return cv2.GaussianBlur(img_array, (5, 5), intensity)
+    
+    def apply_filter_emboss_optimized(self, img_array, intensity):
+        """Bộ lọc làm nổi tối ưu sử dụng Sobel operator - chỉ dùng Sobel x và Sobel y"""
+        if len(img_array.shape) == 3:
+            gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+        else:
+            gray = img_array
+        
+        # Tính toán Sobel gradients theo cả hai hướng với ksize=5
+        sobel_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=5)  # Sobel x
+        sobel_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=5)  # Sobel y
+        
+        # Kết hợp gradients và chuyển về uint8
+        sobel_combined = np.sqrt(sobel_x**2 + sobel_y**2)
+        sobel_normalized = np.clip(sobel_combined, 0, 255).astype(np.uint8)
+        
+        # Chuyển sang RGB
+        if len(img_array.shape) == 3:
+            embossed_rgb = cv2.cvtColor(sobel_normalized, cv2.COLOR_GRAY2RGB)
+        else:
+            embossed_rgb = sobel_normalized
+        
+        # Blend với ảnh gốc theo intensity
+        blend_ratio = min(1.0, intensity / 3.0)
+        result = cv2.addWeighted(img_array, 1 - blend_ratio, embossed_rgb, blend_ratio, 0)
+        return result
+    
+    def apply_filter_to_frame(self, frame_rgb):
+        """Áp dụng bộ lọc hiện tại lên frame webcam"""
+        if self.current_filter == "Không":
+            return frame_rgb
+        elif self.current_filter == "Viền":
+            return self.apply_filter_contour_optimized(frame_rgb, self.contour_slider_value)
+        elif self.current_filter == "Làm Mờ":
+            return self.apply_filter_blur_optimized(frame_rgb, self.blur_slider_value)
+        elif self.current_filter == "Đen Trắng":
+            return self.apply_filter_bw_optimized(frame_rgb, self.bw_slider_value)
+        elif self.current_filter == "Chi Tiết":
+            return self.apply_filter_detail_optimized(frame_rgb, self.detail_slider_value)
+        elif self.current_filter == "Tăng Cạnh":
+            return self.apply_filter_edge_enhance_optimized(frame_rgb, self.edge_slider_value)
+        elif self.current_filter == "Làm Mịn":
+            return self.apply_filter_smooth_optimized(frame_rgb, self.smooth_slider_value)
+        elif self.current_filter == "Làm Nổi":
+            return self.apply_filter_emboss_optimized(frame_rgb, self.emboss_slider_value)
+        else:
+            return frame_rgb
     
     def add_slider(self, parent, label, from_val, to_val, default, command):
         frame = tk.Frame(parent, bg=self.colors['bg_panel'])
@@ -344,85 +635,321 @@ class ImageEditorApp:
                 messagebox.showerror("Lỗi", f"Không thể mở ảnh: {str(e)}")
     
     def open_webcam(self):
-        """Mở webcam và chụp ảnh"""
-        cap = cv2.VideoCapture(0)
+        """Mở webcam và hiển thị trong khung lớn duy nhất thay thế cả hai canvas"""
+        if self.webcam_active:
+            messagebox.showinfo("Thông báo", "Webcam đã được mở!")
+            return
         
-        if not cap.isOpened():
+        
+        self.webcam_cap = cv2.VideoCapture(0)
+        
+        if not self.webcam_cap.isOpened():
             messagebox.showerror("Lỗi", "Không thể mở webcam!")
             return
         
-        # Tạo cửa sổ webcam
-        webcam_window = tk.Toplevel(self.root)
-        webcam_window.title("Webcam")
-        webcam_window.geometry("640x520")
-        webcam_window.configure(bg=self.colors['bg_main'])
+        # Lưu trạng thái canvas hiện tại
+        self.original_canvas_state = (self.image, self.edited_image) if self.image else None
         
-        # Canvas để hiển thị webcam
-        webcam_canvas = tk.Canvas(webcam_window, width=640, height=480, bg='black')
-        webcam_canvas.pack(pady=10)
+        # Đánh dấu webcam đang hoạt động
+        self.webcam_active = True
         
-        # Nút chụp ảnh
-        capture_btn = tk.Button(webcam_window, text="📸 Chụp Ảnh", 
+        # Ẩn hai frame ảnh gốc và chỉnh sửa
+        self.original_frame.pack_forget()
+        self.edited_frame.pack_forget()
+        
+        # Hiện khung webcam lớn - chiếm toàn bộ không gian
+        self.webcam_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Xóa các nút cũ nếu có
+        for widget in self.webcam_control_container.winfo_children():
+            widget.destroy()
+        
+        # Sắp xếp layout: bên trái và bên phải (frame trái to ra, frame phải nhỏ lại)
+        self.webcam_left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(10, 1), pady=10)
+        self.webcam_right_frame.pack(side=tk.RIGHT, fill=tk.Y, expand=False, padx=(1, 0), pady=10)
+        # Giới hạn chiều rộng bên phải (giảm xuống để frame trái to ra hơn nữa)
+        self.webcam_right_frame.config(width=200)
+        self.webcam_right_frame.pack_propagate(False)
+        # Pack container chính
+        self.webcam_main_container.pack(fill=tk.BOTH, expand=True)
+        
+        # Hiện gallery webcam - bên phải (hiển thị dọc, sát bên phải, không có padding)
+        self.webcam_gallery_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 2), padx=(0, 0), anchor=tk.E)
+        self.load_captured_images_webcam()
+        
+        # Tạo nút điều khiển webcam (nhỏ hơn) - bên phải, dưới gallery, sát bên phải
+        capture_btn = tk.Button(self.webcam_control_container, text="  Chụp Ảnh  ", 
                                bg=self.colors['success'], fg='white',
-                               font=("Arial", 12, "bold"),
-                               command=lambda: self.capture_photo(cap, webcam_window),
-                               padx=20, pady=10)
-        capture_btn.pack(pady=5)
+                               font=("Arial", 9),
+                               command=self.capture_photo,
+                               padx=5, pady=5)
+        capture_btn.pack(side=tk.RIGHT, padx=(7, 3))
         
-        # Nút đóng
-        close_btn = tk.Button(webcam_window, text="Đóng", 
+        # Nút đóng (nhỏ hơn) - sát bên phải
+        close_btn = tk.Button(self.webcam_control_container, text="  Thoát Webcam   ", 
                              bg=self.colors['accent'], fg='white',
-                             command=lambda: self.close_webcam(cap, webcam_window),
-                             padx=20, pady=5)
-        close_btn.pack()
+                             font=("Arial", 9),
+                             command=self.close_webcam,
+                             padx=5, pady=5)
+        close_btn.pack(side=tk.RIGHT, padx=(3, 0))
         
-        def update_frame():
-            ret, frame = cap.read()
-            if ret:
-                # Chuyển BGR sang RGB
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                frame_pil = Image.fromarray(frame_rgb)
-                frame_pil.thumbnail((640, 480))
-                
-                frame_tk = ImageTk.PhotoImage(frame_pil)
-                webcam_canvas.create_image(320, 240, image=frame_tk)
-                webcam_canvas.image = frame_tk
-                
-                self.webcam_capture = frame_rgb
-                webcam_window.after(30, update_frame)
-            else:
-                messagebox.showerror("Lỗi", "Không thể đọc từ webcam!")
-                cap.release()
-                webcam_window.destroy()
+        # Pack container nút điều khiển - bên phải, dưới gallery, sát bên phải
+        self.webcam_control_container.pack(fill=tk.X, pady=2, padx=(0, 0), anchor=tk.E)
         
-        update_frame()
+        # Bắt đầu cập nhật frame
+        self.update_webcam_frame()
     
-    def capture_photo(self, cap, window):
-        """Chụp ảnh từ webcam và lưu vào folder"""
-        if self.webcam_capture is not None:
+    def update_webcam_frame(self):
+        """Cập nhật frame webcam trên canvas lớn duy nhất - phóng to gấp đôi"""
+        if not self.webcam_active or self.webcam_cap is None:
+            return
+        
+        ret, frame = self.webcam_cap.read()
+        if ret:
+            # Chuyển BGR sang RGB
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            
+            # Lưu frame hiện tại
+            self.webcam_capture = frame_rgb.copy()
+            
+            # Áp dụng bộ lọc nếu có
+            frame_display = self.apply_filter_to_frame(frame_rgb.copy())
+            
+            # Chuyển sang PIL Image
+            frame_pil = Image.fromarray(frame_display)
+            
+            # Cập nhật canvas webcam
+            self.webcam_canvas.update_idletasks()
+            canvas_width = self.webcam_canvas.winfo_width()
+            canvas_height = self.webcam_canvas.winfo_height()
+            
+            if canvas_width > 1 and canvas_height > 1:
+                # Phóng to gấp đôi - scale để fill toàn bộ canvas
+                scaled_frame = self.scale_image_to_canvas_fill(frame_pil, self.webcam_canvas)
+                frame_tk = ImageTk.PhotoImage(scaled_frame)
+                
+                self.webcam_canvas.delete("all")
+                # Vẽ ảnh từ góc trên bên trái để fill toàn bộ canvas
+                self.webcam_canvas.create_image(0, 0, image=frame_tk, anchor=tk.NW)
+                self.webcam_canvas.image = frame_tk  # Giữ reference
+            
+            # Lên lịch cập nhật tiếp theo
+            self.root.after(30, self.update_webcam_frame)
+        else:
+            messagebox.showerror("Lỗi", "Không thể đọc từ webcam!")
+            self.close_webcam()
+    
+    def capture_photo(self):
+        """Chụp ảnh từ webcam và lưu vào folder (lưu cả ảnh gốc và ảnh đã áp dụng bộ lọc)"""
+        if self.webcam_capture is not None and self.webcam_active:
             # Tạo tên file với timestamp
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"{self.webcam_folder}/capture_{timestamp}.jpg"
             
-            # Chuyển numpy array sang PIL Image và lưu
-            image_pil = Image.fromarray(self.webcam_capture)
-            image_pil.save(filename)
+            # Lưu ảnh gốc
+            filename_original = f"{self.webcam_folder}/capture_original_{timestamp}.jpg"
+            image_pil_original = Image.fromarray(self.webcam_capture)
+            image_pil_original.save(filename_original)
             
-            # Mở ảnh vừa chụp trong editor
-            self.image = image_pil
-            self.edited_image = self.image.copy()
-            self.undo_stack = []
-            self.update_images()
+            # Lưu ảnh đã áp dụng bộ lọc (nếu có)
+            if self.current_filter != "Không":
+                frame_filtered = self.apply_filter_to_frame(self.webcam_capture.copy())
+                filename_filtered = f"{self.webcam_folder}/capture_filtered_{timestamp}.jpg"
+                image_pil_filtered = Image.fromarray(frame_filtered)
+                image_pil_filtered.save(filename_filtered)
+                self.captured_images_list.append(filename_filtered)
+            else:
+                self.captured_images_list.append(filename_original)
             
-            messagebox.showinfo("Thành công", f"Ảnh đã được lưu vào: {filename}")
-            cap.release()
-            window.destroy()
+            # Cập nhật gallery (cả gallery thường và gallery webcam nếu đang mở)
+            self.load_captured_images()
+            if self.webcam_active:
+                self.load_captured_images_webcam()
+            
+            messagebox.showinfo("Thành công", f"Ảnh đã được chụp và lưu!")
         else:
             messagebox.showwarning("Cảnh báo", "Không có ảnh để chụp!")
     
-    def close_webcam(self, cap, window):
-        cap.release()
-        window.destroy()
+    def load_captured_images(self):
+        """Tải và hiển thị các ảnh đã chụp trong gallery (cho edited_frame)"""
+        # Xóa các widget cũ trong gallery
+        for widget in self.gallery_inner.winfo_children():
+            widget.destroy()
+        
+        # Khởi tạo danh sách nếu chưa có
+        if not hasattr(self, 'captured_images_list'):
+            self.captured_images_list = []
+        
+        # Tải danh sách ảnh từ folder
+        if os.path.exists(self.webcam_folder):
+            image_files = sorted([f for f in os.listdir(self.webcam_folder) 
+                                 if f.lower().endswith(('.jpg', '.jpeg', '.png'))],
+                                key=lambda x: os.path.getmtime(os.path.join(self.webcam_folder, x)),
+                                reverse=True)
+            
+            self.captured_images_list = [os.path.join(self.webcam_folder, f) for f in image_files]
+        
+        # Hiển thị các ảnh trong gallery (tối đa 10 ảnh gần nhất)
+        for img_path in self.captured_images_list[:10]:
+            try:
+                img = Image.open(img_path)
+                img.thumbnail((80, 80))
+                img_tk = ImageTk.PhotoImage(img)
+                
+                # Tạo button với ảnh
+                btn = tk.Button(self.gallery_inner, image=img_tk, 
+                              command=lambda path=img_path: self.load_captured_image(path),
+                              bg=self.colors['bg_main'], relief=tk.RAISED, bd=2)
+                btn.image = img_tk  # Giữ reference
+                btn.pack(side=tk.LEFT, padx=5)
+            except Exception as e:
+                continue
+        
+        # Cập nhật scroll region
+        self.gallery_inner.update_idletasks()
+        self.gallery_canvas.configure(scrollregion=self.gallery_canvas.bbox("all"))
+    
+    def load_captured_images_webcam(self):
+        """Tải và hiển thị các ảnh đã chụp trong gallery webcam"""
+        # Xóa các widget cũ trong gallery webcam
+        for widget in self.webcam_gallery_inner.winfo_children():
+            widget.destroy()
+        
+        # Khởi tạo danh sách nếu chưa có
+        if not hasattr(self, 'captured_images_list'):
+            self.captured_images_list = []
+        
+        # Tải danh sách ảnh từ folder
+        if os.path.exists(self.webcam_folder):
+            image_files = sorted([f for f in os.listdir(self.webcam_folder) 
+                                 if f.lower().endswith(('.jpg', '.jpeg', '.png'))],
+                                key=lambda x: os.path.getmtime(os.path.join(self.webcam_folder, x)),
+                                reverse=True)
+            
+            self.captured_images_list = [os.path.join(self.webcam_folder, f) for f in image_files]
+        
+        # Hiển thị các ảnh trong gallery webcam (tất cả ảnh, không giới hạn) - hiển thị dọc, to nhất có thể
+        for img_path in self.captured_images_list:
+            try:
+                img = Image.open(img_path)
+                # Tăng kích thước thumbnail (110x110 để phù hợp với frame nhỏ hơn)
+                img.thumbnail((197, 197))
+                img_tk = ImageTk.PhotoImage(img)
+                
+                # Tạo button với ảnh (pack dọc, sát bên phải giống nút chụp ảnh)
+                btn = tk.Button(self.webcam_gallery_inner, image=img_tk, 
+                              command=lambda path=img_path: self.load_captured_image(path),
+                              bg=self.colors['bg_main'], relief=tk.FLAT, bd=0)
+                btn.image = img_tk  # Giữ reference
+                # Pack với anchor E để căn phải, và fill X để chiếm toàn bộ chiều rộng nhưng căn phải
+                btn.pack(side=tk.TOP, pady=0, anchor=tk.E, fill=tk.X)
+            except Exception as e:
+                continue
+        
+        # Cập nhật scroll region - QUAN TRỌNG: phải cập nhật sau khi thêm tất cả ảnh (scroll dọc)
+        # Đợi một chút để đảm bảo tất cả widget đã được render
+        self.webcam_gallery_inner.update_idletasks()
+        self.webcam_gallery_canvas.update_idletasks()
+        
+        # Lấy kích thước thực tế của inner frame
+        inner_height = self.webcam_gallery_inner.winfo_reqheight()
+        canvas_height = self.webcam_gallery_canvas.winfo_height()
+        
+        # Cập nhật scroll region dựa trên bbox của tất cả nội dung (theo chiều dọc)
+        bbox = self.webcam_gallery_canvas.bbox("all")
+        if bbox:
+            # Sử dụng height thực tế của inner frame hoặc bbox, lấy giá trị lớn hơn
+            scroll_height = max(inner_height, bbox[3]) if inner_height > 0 else bbox[3]
+            # Mở rộng scroll region để bao gồm tất cả nội dung (theo chiều dọc)
+            self.webcam_gallery_canvas.configure(scrollregion=(0, 0, bbox[2], scroll_height))
+        else:
+            # Nếu không có nội dung, set scroll region dựa trên inner height
+            if inner_height > 0:
+                self.webcam_gallery_canvas.configure(scrollregion=(0, 0, 110, inner_height))
+            else:
+                self.webcam_gallery_canvas.configure(scrollregion=(0, 0, 1, 1))
+        
+        # Force update scrollbar và reset về đầu (scroll dọc)
+        self.webcam_gallery_canvas.yview_moveto(0)
+        # Đảm bảo scrollbar được cập nhật
+        self.webcam_gallery_scrollbar.update()
+        
+        # Căn phải các ảnh sau khi load xong
+        self.webcam_gallery_canvas.update_idletasks()
+        canvas_width = self.webcam_gallery_canvas.winfo_width()
+        if canvas_width > 1:
+            inner_width = self.webcam_gallery_inner.winfo_reqwidth()
+            if inner_width < canvas_width:
+                # Căn phải bằng cách đặt x position
+                x_pos = canvas_width - inner_width
+                self.webcam_gallery_canvas.coords(self.webcam_gallery_window, x_pos, 0)
+    
+    def load_captured_image(self, image_path):
+        """Tải ảnh đã chụp vào editor"""
+        try:
+            # Tải ảnh mới trước
+            new_image = Image.open(image_path)
+            new_edited = new_image.copy()
+            
+            # Thoát webcam mode (sẽ không khôi phục trạng thái cũ)
+            self.webcam_active = False
+            if self.webcam_cap is not None:
+                self.webcam_cap.release()
+                self.webcam_cap = None
+            
+            # Ẩn khung webcam lớn
+            self.webcam_frame.pack_forget()
+            
+            # Ẩn gallery
+            self.gallery_frame.pack_forget()
+            
+            # Hiện lại hai frame ảnh gốc và chỉnh sửa
+            self.original_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10)
+            self.edited_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10)
+            
+            # Đặt ảnh mới
+            self.image = new_image
+            self.edited_image = new_edited
+            self.undo_stack = []
+            self.original_canvas_state = None
+            
+            # Cập nhật hiển thị
+            self.update_images()
+        except Exception as e:
+            messagebox.showerror("Lỗi", f"Không thể tải ảnh: {str(e)}")
+    
+    def close_webcam(self):
+        """Đóng webcam và khôi phục trạng thái ban đầu"""
+        if not self.webcam_active:
+            return
+        
+        self.webcam_active = False
+        
+        # Giải phóng webcam
+        if self.webcam_cap is not None:
+            self.webcam_cap.release()
+            self.webcam_cap = None
+        
+        # Ẩn khung webcam lớn và gallery webcam
+        self.webcam_frame.pack_forget()
+        self.webcam_gallery_frame.pack_forget()
+        
+        # Ẩn gallery thường
+        self.gallery_frame.pack_forget()
+        
+        # Hiện lại hai frame ảnh gốc và chỉnh sửa
+        self.original_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10)
+        self.edited_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10)
+        
+        # Khôi phục trạng thái canvas ban đầu
+        if self.original_canvas_state:
+            self.image, self.edited_image = self.original_canvas_state
+            self.update_images()
+        else:
+            # Nếu không có ảnh ban đầu, xóa cả hai canvas
+            self.original_canvas.delete("all")
+            self.edited_canvas.delete("all")
+        
+        self.webcam_capture = None
 
     def save_image(self):
         """Lưu ảnh với dialog chọn folder và tên file"""
@@ -433,7 +960,7 @@ class ImageEditorApp:
                 # Tạo dialog để nhập tên file
                 save_window = tk.Toplevel(self.root)
                 save_window.title("Lưu Ảnh")
-                save_window.geometry("400x150")
+                save_window.geometry("150x150")
                 save_window.configure(bg=self.colors['bg_panel'])
                 save_window.transient(self.root)
                 save_window.grab_set()
@@ -549,6 +1076,36 @@ class ImageEditorApp:
         
         scaled_image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
         return scaled_image
+    
+    def scale_image_to_canvas_fill(self, image, canvas):
+        """Scale ảnh để fill toàn bộ canvas, có thể crop để phóng to"""
+        canvas.update_idletasks()  # Đảm bảo canvas đã được render
+        canvas_width = canvas.winfo_width()
+        canvas_height = canvas.winfo_height()
+        
+        if canvas_width <= 1 or canvas_height <= 1:
+            canvas_width, canvas_height = 480, 360
+        
+        # Tính toán kích thước để fill toàn bộ canvas
+        img_width, img_height = image.size
+        scale_w = canvas_width / img_width
+        scale_h = canvas_height / img_height
+        scale = max(scale_w, scale_h)  # Chọn scale lớn hơn để fill toàn bộ
+        
+        new_width = int(img_width * scale)
+        new_height = int(img_height * scale)
+        
+        # Resize ảnh
+        scaled_image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        
+        # Crop ảnh để vừa với canvas (center crop)
+        left = (new_width - canvas_width) // 2
+        top = (new_height - canvas_height) // 2
+        right = left + canvas_width
+        bottom = top + canvas_height
+        
+        cropped_image = scaled_image.crop((left, top, right, bottom))
+        return cropped_image
 
     def on_window_resize(self, event=None):
         """Cập nhật ảnh khi cửa sổ thay đổi kích thước"""
@@ -560,6 +1117,10 @@ class ImageEditorApp:
 
     def update_images(self):
         """Cập nhật hiển thị ảnh trên canvas"""
+        # Không cập nhật nếu đang ở chế độ webcam
+        if self.webcam_active:
+            return
+        
         if self.image:
             try:
                 # Ảnh gốc
@@ -637,15 +1198,15 @@ class ImageEditorApp:
             self.update_images()
 
     def flip_horizontal(self):
-        if self.image:
+        if self.edited_image:
             self.save_state_for_undo()
-            self.edited_image = self.image.transpose(Image.FLIP_LEFT_RIGHT)
+            self.edited_image = self.edited_image.transpose(Image.FLIP_LEFT_RIGHT)
             self.update_images()
     
     def flip_vertical(self):
-        if self.image:
+        if self.edited_image:
             self.save_state_for_undo()
-            self.edited_image = self.image.transpose(Image.FLIP_TOP_BOTTOM)
+            self.edited_image = self.edited_image.transpose(Image.FLIP_TOP_BOTTOM)
             self.update_images()
 
     def hide_filter_sliders(self):
@@ -691,117 +1252,111 @@ class ImageEditorApp:
         """Khi thay đổi slider viền"""
         if self.current_filter == "Viền":
             self.contour_slider_value = self.contour_slider.get()
-            self.apply_filter_with_intensity()
+            if self.webcam_active:
+                # Trong chế độ webcam, bộ lọc sẽ được áp dụng trong update_webcam_frame
+                pass
+            else:
+                self.apply_filter_with_intensity()
     
     def on_blur_filter_change(self, value=None):
         """Khi thay đổi slider làm mờ"""
         if self.current_filter == "Làm Mờ":
             self.blur_slider_value = self.blur_filter_slider.get()
-            self.apply_filter_with_intensity()
+            if self.webcam_active:
+                # Trong chế độ webcam, bộ lọc sẽ được áp dụng trong update_webcam_frame
+                pass
+            else:
+                self.apply_filter_with_intensity()
     
     def on_bw_change(self, value=None):
         """Khi thay đổi slider đen trắng"""
         if self.current_filter == "Đen Trắng":
             self.bw_slider_value = self.bw_slider.get()
-            self.apply_filter_with_intensity()
+            if self.webcam_active:
+                # Trong chế độ webcam, bộ lọc sẽ được áp dụng trong update_webcam_frame
+                pass
+            else:
+                self.apply_filter_with_intensity()
     
     def on_detail_change(self, value=None):
         """Khi thay đổi slider chi tiết"""
         if self.current_filter == "Chi Tiết":
             self.detail_slider_value = self.detail_slider.get()
-            self.apply_filter_with_intensity()
+            if self.webcam_active:
+                # Trong chế độ webcam, bộ lọc sẽ được áp dụng trong update_webcam_frame
+                pass
+            else:
+                self.apply_filter_with_intensity()
     
     def on_edge_change(self, value=None):
         """Khi thay đổi slider tăng cạnh"""
         if self.current_filter == "Tăng Cạnh":
             self.edge_slider_value = self.edge_slider.get()
-            self.apply_filter_with_intensity()
+            if self.webcam_active:
+                # Trong chế độ webcam, bộ lọc sẽ được áp dụng trong update_webcam_frame
+                pass
+            else:
+                self.apply_filter_with_intensity()
     
     def on_smooth_change(self, value=None):
         """Khi thay đổi slider làm mịn"""
         if self.current_filter == "Làm Mịn":
             self.smooth_slider_value = self.smooth_slider.get()
-            self.apply_filter_with_intensity()
+            if self.webcam_active:
+                # Trong chế độ webcam, bộ lọc sẽ được áp dụng trong update_webcam_frame
+                pass
+            else:
+                self.apply_filter_with_intensity()
     
     def on_emboss_change(self, value=None):
         """Khi thay đổi slider làm nổi"""
         if self.current_filter == "Làm Nổi":
             self.emboss_slider_value = self.emboss_slider.get()
-            self.apply_filter_with_intensity()
+            if self.webcam_active:
+                # Trong chế độ webcam, bộ lọc sẽ được áp dụng trong update_webcam_frame
+                pass
+            else:
+                self.apply_filter_with_intensity()
     
     def apply_filter_with_intensity(self, value=None):
-        """Áp dụng bộ lọc với cường độ điều chỉnh được"""
+        """Áp dụng bộ lọc với cường độ điều chỉnh được - sử dụng các hàm tối ưu"""
         if self.image:
             self.save_state_for_undo()
             filter_name = self.current_filter
             
+            # Chuyển PIL Image sang numpy array để xử lý
+            img_array = np.array(self.image)
+            
             if filter_name == "Không":
                 self.edited_image = self.image.copy()
             elif filter_name == "Làm Mờ":
-                # Sử dụng slider riêng cho làm mờ
-                radius = max(0.5, self.blur_slider_value)
-                self.edited_image = self.image.filter(ImageFilter.GaussianBlur(radius=radius))
+                # Sử dụng hàm tối ưu
+                filtered_array = self.apply_filter_blur_optimized(img_array, self.blur_slider_value)
+                self.edited_image = Image.fromarray(filtered_array)
             elif filter_name == "Viền":
-                # Sử dụng slider riêng cho viền
-                intensity = self.contour_slider_value
-                if intensity > 1.0:
-                    # Tăng cường độ bằng cách áp dụng nhiều lần và blend
-                    temp_img = self.image.filter(ImageFilter.CONTOUR)
-                    # Áp dụng nhiều lần để tăng độ đậm
-                    num_applications = int(intensity)
-                    for _ in range(num_applications - 1):
-                        temp_img = temp_img.filter(ImageFilter.CONTOUR)
-                    # Blend với ảnh gốc để điều chỉnh độ đậm/nhẹ
-                    blend_factor = intensity - int(intensity)
-                    if blend_factor > 0:
-                        self.edited_image = Image.blend(self.image, temp_img, min(1.0, blend_factor + 0.5))
-                    else:
-                        self.edited_image = Image.blend(self.image, temp_img, 0.5)
-                else:
-                    # Giảm cường độ bằng cách blend với ảnh gốc
-                    filtered = self.image.filter(ImageFilter.CONTOUR)
-                    self.edited_image = Image.blend(self.image, filtered, intensity)
+                # Sử dụng hàm tối ưu
+                filtered_array = self.apply_filter_contour_optimized(img_array, self.contour_slider_value)
+                self.edited_image = Image.fromarray(filtered_array)
             elif filter_name == "Chi Tiết":
-                # Sử dụng slider riêng cho chi tiết
-                intensity = self.detail_slider_value
-                filtered = self.image.filter(ImageFilter.DETAIL)
-                if intensity != 1.0:
-                    self.edited_image = Image.blend(self.image, filtered, min(1.0, intensity / 3.0))
-                else:
-                    self.edited_image = filtered
+                # Sử dụng hàm tối ưu
+                filtered_array = self.apply_filter_detail_optimized(img_array, self.detail_slider_value)
+                self.edited_image = Image.fromarray(filtered_array)
             elif filter_name == "Tăng Cạnh":
-                # Sử dụng slider riêng cho tăng cạnh
-                intensity = self.edge_slider_value
-                filtered = self.image.filter(ImageFilter.EDGE_ENHANCE)
-                if intensity != 1.0:
-                    self.edited_image = Image.blend(self.image, filtered, min(1.0, intensity / 3.0))
-                else:
-                    self.edited_image = filtered
+                # Sử dụng hàm tối ưu
+                filtered_array = self.apply_filter_edge_enhance_optimized(img_array, self.edge_slider_value)
+                self.edited_image = Image.fromarray(filtered_array)
             elif filter_name == "Đen Trắng":
-                # Sử dụng slider riêng cho đen trắng
-                intensity = self.bw_slider_value
-                bw_image = self.image.convert("L").convert("RGB")
-                if intensity < 1.0:
-                    # Blend giữa ảnh màu và đen trắng để điều chỉnh độ đậm/nhẹ
-                    self.edited_image = Image.blend(self.image, bw_image, intensity)
-                else:
-                    self.edited_image = bw_image
+                # Sử dụng hàm tối ưu
+                filtered_array = self.apply_filter_bw_optimized(img_array, self.bw_slider_value)
+                self.edited_image = Image.fromarray(filtered_array)
             elif filter_name == "Làm Mịn":
-                # Sử dụng slider riêng cho làm mịn
-                intensity = self.smooth_slider_value
-                filtered = self.image.filter(ImageFilter.SMOOTH)
-                if intensity != 1.0:
-                    self.edited_image = Image.blend(self.image, filtered, min(1.0, intensity / 3.0))
-                else:
-                    self.edited_image = filtered
+                # Sử dụng hàm tối ưu
+                filtered_array = self.apply_filter_smooth_optimized(img_array, self.smooth_slider_value)
+                self.edited_image = Image.fromarray(filtered_array)
             elif filter_name == "Làm Nổi":
-                # Sử dụng slider riêng cho làm nổi
-                intensity = self.emboss_slider_value
-                filtered = self.image.filter(ImageFilter.EMBOSS)
-                if intensity != 1.0:
-                    self.edited_image = Image.blend(self.image, filtered, min(1.0, intensity / 3.0))
-                else:
-                    self.edited_image = filtered
+                # Sử dụng hàm tối ưu
+                filtered_array = self.apply_filter_emboss_optimized(img_array, self.emboss_slider_value)
+                self.edited_image = Image.fromarray(filtered_array)
             
             self.update_images()
     
@@ -876,7 +1431,7 @@ class ImageEditorApp:
             
             self.update_images()
             messagebox.showinfo("Hoàn thành", 
-                              "🤖 AI đã tự động chỉnh sửa ảnh của bạn!\n\n"
+                              " AI đã tự động chỉnh sửa ảnh của bạn!\n\n"
                               "Đã áp dụng:\n"
                               "• Tự động cân bằng độ sáng và tương phản\n"
                               "• Tăng cường màu sắc\n"

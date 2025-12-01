@@ -17,24 +17,32 @@ DSP_Img_Procesing/
 │
 ├── image_processing/       # Xử lý ảnh
 │   ├── __init__.py
+<<<<<<< HEAD
 │   ├── edge_detection.py   
 │   ├── thresholding.py     
 │   └── filters.py          
 │
 ├── image_editing/          # Chỉnh sửa ảnh
 │   └── Image_Editing.py    
+=======
+│   ├── edge_detection.py   # 
+│   ├── thresholding.py     # 
+│   └── filters.py          # 
+│
+├── image_editing/          # Chỉnh sửa ảnh
+│   └── Image_Editing.py    # 
+>>>>>>> 76c21ca (Update README & Image editing features)
 │
 └── utils/                  # Tiện ích chung
     ├── __init__.py
     ├── file_operations.py  # Mở, lưu file
     └── image_utils.py      # Chuyển đổi, resize ảnh
-```
+
 
 ## Cách chạy
 
-```bash
+
 python main.py
-```
 
 ## Dependencies
 
