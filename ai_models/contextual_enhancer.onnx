@@ -1,0 +1,65 @@
+{
+  "base": {
+    "brightness": 1.04,
+    "contrast": 1.05,
+    "saturation": 1.06,
+    "sharpness": 1.05,
+    "shadow_lift": 6,
+    "highlight_compress": 0.05
+  },
+  "scenarios": {
+    "night": {
+      "brightness": 1.25,
+      "contrast": 1.12,
+      "saturation": 1.08,
+      "sharpness": 1.07,
+      "shadow_lift": 18,
+      "highlight_compress": 0.08,
+      "clarity": 0.15
+    },
+    "backlit": {
+      "brightness": 1.15,
+      "contrast": 1.08,
+      "saturation": 1.05,
+      "shadow_lift": 22,
+      "highlight_compress": 0.15,
+      "white_balance": {
+        "r": 0.98,
+        "g": 1.0,
+        "b": 1.05
+      }
+    },
+    "portrait": {
+      "brightness": 1.08,
+      "contrast": 1.03,
+      "saturation": 1.04,
+      "sharpness": 1.02,
+      "shadow_lift": 10,
+      "skin_soften": 0.12,
+      "white_balance": {
+        "r": 1.03,
+        "g": 1.0,
+        "b": 0.96
+      }
+    },
+    "landscape": {
+      "brightness": 1.03,
+      "contrast": 1.07,
+      "saturation": 1.15,
+      "sharpness": 1.12,
+      "clarity": 0.25,
+      "white_balance": {
+        "r": 1.01,
+        "g": 0.99,
+        "b": 1.04
+      }
+    },
+    "flat": {
+      "contrast": 1.18,
+      "saturation": 1.2,
+      "sharpness": 1.12,
+      "clarity": 0.3
+    }
+  }
+}
+

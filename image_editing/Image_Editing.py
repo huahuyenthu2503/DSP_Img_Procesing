@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 import os
 from datetime import datetime
+import copy
 
 
 class ImageEditorApp:
@@ -41,15 +42,20 @@ class ImageEditorApp:
         self.captured_images_list = []
         self.original_canvas_state = None  # Lưu trạng thái canvas gốc
         self.current_filter = "Không"
-        self.filter_intensity = 1.0
-        # Slider riêng cho từng bộ lọc
-        self.contour_slider_value = 1.0
-        self.blur_slider_value = 2.0
-        self.bw_slider_value = 1.0
-        self.detail_slider_value = 1.0
-        self.edge_slider_value = 1.0
-        self.smooth_slider_value = 1.0
-        self.emboss_slider_value = 1.0
+        self.view_zoom = 1.0
+        self.filter_values_defaults = {
+            "Viền": 1.0,
+            "Làm Mờ": 2.0,
+            "Đen Trắng": 1.0,
+            "Chi Tiết": 1.0,
+            "Tăng Cạnh": 1.0,
+            "Làm Mịn": 1.0,
+            "Làm Nổi": 1.0,
+        }
+        self.filter_values = self.filter_values_defaults.copy()
+        self.adjustments = {}
+        self.suspend_slider_commands = False
+        self.current_operation = None
         
         # Tạo folder lưu ảnh
         self.webcam_folder = "captured_images"
@@ -149,7 +155,7 @@ class ImageEditorApp:
                  command=self.open_webcam, **btn_style).pack(fill=tk.X, pady=5)
         
         # Nút AI
-        tk.Button(file_frame, text=" AI Tự Động Sửa Ảnh", 
+        tk.Button(file_frame, text=" Tự Động Sửa Ảnh", 
                  bg=self.colors['accent'], fg='white',
                  command=self.ai_auto_edit, **btn_style).pack(fill=tk.X, pady=5)
         
@@ -185,6 +191,35 @@ class ImageEditorApp:
                  command=self.flip_horizontal, **btn_style).pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
         tk.Button(flip_frame, text="Lật Dọc", bg=self.colors['bg_secondary'], fg='white',
                  command=self.flip_vertical, **btn_style).pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        
+        transform_frame = tk.LabelFrame(self.tools_panel, text="Cắt & Kích Thước", 
+                                        font=("Arial", 11, "bold"),
+                                        bg=self.colors['bg_panel'], 
+                                        fg=self.colors['text_light'],
+                                        padx=10, pady=10)
+        transform_frame.pack(fill=tk.X, padx=15, pady=10)
+
+        tk.Button(transform_frame, text="Cắt Ảnh", bg=self.colors['bg_secondary'], fg='white',
+                 command=self.crop_image, **btn_style).pack(fill=tk.X, pady=3)
+        tk.Button(transform_frame, text="Bỏ Cắt", bg=self.colors['bg_secondary'], fg='white',
+                 command=self.clear_crop_adjustment, **btn_style).pack(fill=tk.X, pady=3)
+        
+        zoom_label = tk.Label(transform_frame, text="Thu phóng (%)",
+                              bg=self.colors['bg_panel'],
+                              fg=self.colors['text_light'],
+                              font=("Arial", 10, "bold"))
+        zoom_label.pack(pady=(8, 2))
+        self.zoom_slider = tk.Scale(transform_frame, from_=50, to=200, resolution=1,
+                                    orient="horizontal",
+                                    bg=self.colors['bg_panel'],
+                                    fg=self.colors['text_light'],
+                                    highlightthickness=0,
+                                    troughcolor=self.colors['bg_main'],
+                                    activebackground=self.colors['bg_button'],
+                                    command=self.adjust_zoom,
+                                    length=220)
+        self.zoom_slider.set(100)
+        self.zoom_slider.pack(fill=tk.X)
         
         # Phần bộ lọc
         filter_frame = tk.LabelFrame(self.tools_panel, text="Bộ Lọc", 
@@ -420,6 +455,9 @@ class ImageEditorApp:
         
         # Ẩn webcam frame ban đầu
         self.webcam_frame.pack_forget()
+
+        # Đồng bộ trạng thái chỉnh sửa ban đầu
+        self.reset_adjustments()
     
     # ========== CÁC HÀM BỘ LỌC TỐI ƯU SỬ DỤNG OPENCV VÀ NUMPY ==========
     
@@ -556,22 +594,24 @@ class ImageEditorApp:
     
     def apply_filter_to_frame(self, frame_rgb):
         """Áp dụng bộ lọc hiện tại lên frame webcam"""
+        intensity_lookup = lambda key, default=1.0: self.filter_values.get(key, default)
+
         if self.current_filter == "Không":
             return frame_rgb
         elif self.current_filter == "Viền":
-            return self.apply_filter_contour_optimized(frame_rgb, self.contour_slider_value)
+            return self.apply_filter_contour_optimized(frame_rgb, intensity_lookup("Viền"))
         elif self.current_filter == "Làm Mờ":
-            return self.apply_filter_blur_optimized(frame_rgb, self.blur_slider_value)
+            return self.apply_filter_blur_optimized(frame_rgb, intensity_lookup("Làm Mờ", 2.0))
         elif self.current_filter == "Đen Trắng":
-            return self.apply_filter_bw_optimized(frame_rgb, self.bw_slider_value)
+            return self.apply_filter_bw_optimized(frame_rgb, intensity_lookup("Đen Trắng"))
         elif self.current_filter == "Chi Tiết":
-            return self.apply_filter_detail_optimized(frame_rgb, self.detail_slider_value)
+            return self.apply_filter_detail_optimized(frame_rgb, intensity_lookup("Chi Tiết"))
         elif self.current_filter == "Tăng Cạnh":
-            return self.apply_filter_edge_enhance_optimized(frame_rgb, self.edge_slider_value)
+            return self.apply_filter_edge_enhance_optimized(frame_rgb, intensity_lookup("Tăng Cạnh"))
         elif self.current_filter == "Làm Mịn":
-            return self.apply_filter_smooth_optimized(frame_rgb, self.smooth_slider_value)
+            return self.apply_filter_smooth_optimized(frame_rgb, intensity_lookup("Làm Mịn"))
         elif self.current_filter == "Làm Nổi":
-            return self.apply_filter_emboss_optimized(frame_rgb, self.emboss_slider_value)
+            return self.apply_filter_emboss_optimized(frame_rgb, intensity_lookup("Làm Nổi"))
         else:
             return frame_rgb
     
@@ -595,6 +635,7 @@ class ImageEditorApp:
                          length=200)
         slider.set(default)
         slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        slider.bind("<ButtonRelease-1>", self.commit_current_operation)
         
         return slider
 
@@ -619,8 +660,10 @@ class ImageEditorApp:
                          length=200)
         slider.set(default)
         slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        slider.bind("<ButtonRelease-1>", self.commit_current_operation)
         
         return slider, frame
+
 
     def open_image(self):
         file_path = filedialog.askopenfilename(
@@ -628,9 +671,8 @@ class ImageEditorApp:
         if file_path:
             try:
                 self.image = Image.open(file_path)
-                self.edited_image = self.image.copy()
                 self.undo_stack = []
-                self.update_images()
+                self.reset_adjustments()
             except Exception as e:
                 messagebox.showerror("Lỗi", f"Không thể mở ảnh: {str(e)}")
     
@@ -888,7 +930,6 @@ class ImageEditorApp:
         try:
             # Tải ảnh mới trước
             new_image = Image.open(image_path)
-            new_edited = new_image.copy()
             
             # Thoát webcam mode (sẽ không khôi phục trạng thái cũ)
             self.webcam_active = False
@@ -908,12 +949,9 @@ class ImageEditorApp:
             
             # Đặt ảnh mới
             self.image = new_image
-            self.edited_image = new_edited
             self.undo_stack = []
             self.original_canvas_state = None
-            
-            # Cập nhật hiển thị
-            self.update_images()
+            self.reset_adjustments()
         except Exception as e:
             messagebox.showerror("Lỗi", f"Không thể tải ảnh: {str(e)}")
     
@@ -950,6 +988,7 @@ class ImageEditorApp:
             self.edited_canvas.delete("all")
         
         self.webcam_capture = None
+        self.current_operation = None
 
     def save_image(self):
         """Lưu ảnh với dialog chọn folder và tên file"""
@@ -1035,26 +1074,330 @@ class ImageEditorApp:
 
     def reset_image(self):
         if self.image:
-            self.edited_image = self.image.copy()
             self.undo_stack = []
-            # Reset các slider về giá trị mặc định
-            self.brightness_slider.set(1)
-            self.color_slider.set(1)
-            self.contrast_slider.set(1)
-            self.sharpen_slider.set(1)
-            self.blur_slider.set(0)
-            self.rotation_slider.set(0)
+            self.reset_adjustments()
+
+    def crop_image(self):
+        if not self.edited_image:
+            messagebox.showwarning("Cảnh báo", "Vui lòng mở ảnh trước!")
+            return
+
+        crop_window = tk.Toplevel(self.root)
+        crop_window.title("Cắt Ảnh")
+        crop_window.configure(bg=self.colors['bg_panel'])
+        crop_window.resizable(False, False)
+
+        preview_image = self.edited_image.copy()
+        max_w, max_h = 900, 600
+        preview_image.thumbnail((max_w, max_h), Image.Resampling.LANCZOS)
+        preview_w, preview_h = preview_image.size
+        preview_photo = ImageTk.PhotoImage(preview_image)
+
+        instruction = tk.Label(crop_window,
+                               text="Kéo chuột để chọn vùng cần cắt. Nhấn Áp dụng để xác nhận.",
+                               bg=self.colors['bg_panel'],
+                               fg=self.colors['text_light'],
+                               font=("Arial", 10))
+        instruction.pack(pady=5)
+
+        canvas = tk.Canvas(crop_window, width=preview_w, height=preview_h,
+                           bg="#000000", highlightthickness=0, cursor="tcross")
+        canvas.pack(padx=10, pady=10)
+        canvas.create_image(0, 0, image=preview_photo, anchor=tk.NW)
+        canvas.image = preview_photo
+
+        selection = {'start': None, 'rect': None, 'coords': None}
+
+        def clamp_point(x, y):
+            return max(0, min(x, preview_w - 1)), max(0, min(y, preview_h - 1))
+
+        def on_press(event):
+            x, y = clamp_point(event.x, event.y)
+            selection['start'] = (x, y)
+            if selection['rect']:
+                canvas.delete(selection['rect'])
+            selection['rect'] = canvas.create_rectangle(x, y, x, y, outline=self.colors['accent'], width=2)
+            selection['coords'] = None
+
+        def on_drag(event):
+            if selection['start'] and selection['rect']:
+                x, y = clamp_point(event.x, event.y)
+                canvas.coords(selection['rect'], selection['start'][0], selection['start'][1], x, y)
+
+        def on_release(event):
+            if selection['start'] and selection['rect']:
+                x, y = clamp_point(event.x, event.y)
+                canvas.coords(selection['rect'], selection['start'][0], selection['start'][1], x, y)
+                x0, y0, x1, y1 = canvas.coords(selection['rect'])
+                if abs(x1 - x0) >= 5 and abs(y1 - y0) >= 5:
+                    selection['coords'] = (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
+
+        canvas.bind("<ButtonPress-1>", on_press)
+        canvas.bind("<B1-Motion>", on_drag)
+        canvas.bind("<ButtonRelease-1>", on_release)
+
+        # Hiển thị vùng cắt hiện tại nếu có
+        existing_crop = self.adjustments.get('crop_box')
+        if existing_crop:
+            l, t, r, b = existing_crop
+            canvas_rect = (l * preview_w, t * preview_h, r * preview_w, b * preview_h)
+            selection['rect'] = canvas.create_rectangle(*canvas_rect, outline=self.colors['accent'], width=2)
+            selection['coords'] = canvas_rect
+
+        def apply_crop_selection():
+            coords = selection.get('coords')
+            if not coords:
+                messagebox.showwarning("Thông báo", "Vui lòng chọn vùng cần cắt.")
+                return
+            left, top, right, bottom = coords
+            if right - left < 5 or bottom - top < 5:
+                messagebox.showwarning("Thông báo", "Vùng cắt quá nhỏ.")
+                return
+            left_norm = left / preview_w
+            top_norm = top / preview_h
+            right_norm = right / preview_w
+            bottom_norm = bottom / preview_h
+            self.save_state_for_undo()
+            self.adjustments['crop_box'] = (left_norm, top_norm, right_norm, bottom_norm)
+            self.reapply_adjustments()
+            self.current_operation = None
+            crop_window.destroy()
+
+        def remove_crop():
+            self.clear_crop_adjustment()
+            crop_window.destroy()
+
+        btn_frame = tk.Frame(crop_window, bg=self.colors['bg_panel'])
+        btn_frame.pack(pady=10)
+        tk.Button(btn_frame, text="Áp dụng", bg=self.colors['success'], fg='white',
+                  command=apply_crop_selection, padx=15, pady=5).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="Bỏ vùng cắt", bg=self.colors['bg_secondary'], fg='white',
+                  command=remove_crop, padx=15, pady=5).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="Hủy", bg=self.colors['accent'], fg='white',
+                  command=crop_window.destroy, padx=15, pady=5).pack(side=tk.LEFT, padx=5)
+
+    def clear_crop_adjustment(self):
+        if not self.image:
+            return
+        if not self.adjustments.get('crop_box'):
+            messagebox.showinfo("Thông báo", "Không có vùng cắt nào để bỏ.")
+            return
+        self.save_state_for_undo()
+        self.adjustments['crop_box'] = None
+        self.reapply_adjustments()
+        self.current_operation = None
+
+    def resize_image(self):
+        if not self.edited_image:
+            messagebox.showwarning("Cảnh báo", "Vui lòng mở ảnh trước!")
+            return
+
+        resize_window = tk.Toplevel(self.root)
+        resize_window.title("Đổi Kích Thước Ảnh")
+        resize_window.configure(bg=self.colors['bg_panel'])
+        resize_window.resizable(False, False)
+
+        img_width, img_height = self.edited_image.size
+
+        width_var = tk.StringVar(value=str(img_width))
+        height_var = tk.StringVar(value=str(img_height))
+        keep_aspect = tk.BooleanVar(value=True)
+
+        frame_w = tk.Frame(resize_window, bg=self.colors['bg_panel'])
+        frame_w.pack(fill=tk.X, padx=10, pady=5)
+        tk.Label(frame_w, text="Chiều rộng (px)", bg=self.colors['bg_panel'], fg=self.colors['text_light'],
+                 font=("Arial", 10)).pack(side=tk.LEFT)
+        width_entry = tk.Entry(frame_w, textvariable=width_var, width=10)
+        width_entry.pack(side=tk.RIGHT, padx=5)
+
+        frame_h = tk.Frame(resize_window, bg=self.colors['bg_panel'])
+        frame_h.pack(fill=tk.X, padx=10, pady=5)
+        tk.Label(frame_h, text="Chiều cao (px)", bg=self.colors['bg_panel'], fg=self.colors['text_light'],
+                 font=("Arial", 10)).pack(side=tk.LEFT)
+        height_entry = tk.Entry(frame_h, textvariable=height_var, width=10)
+        height_entry.pack(side=tk.RIGHT, padx=5)
+
+        tk.Checkbutton(resize_window, text="Giữ tỷ lệ",
+                       variable=keep_aspect,
+                       bg=self.colors['bg_panel'],
+                       fg=self.colors['text_light'],
+                       selectcolor=self.colors['bg_main']).pack(pady=5)
+
+        def apply_resize():
+            try:
+                new_width = int(width_var.get())
+                new_height = int(height_var.get())
+            except ValueError:
+                messagebox.showerror("Lỗi", "Vui lòng nhập số hợp lệ!")
+                return
+
+            if new_width <= 0 or new_height <= 0:
+                messagebox.showerror("Lỗi", "Kích thước phải lớn hơn 0!")
+                return
+
+            if keep_aspect.get():
+                aspect = img_height / img_width
+                new_height_calc = max(1, int(new_width * aspect))
+                new_height = new_height_calc
+                height_var.set(str(new_height))
+
+            self.save_state_for_undo()
+            resized = self.edited_image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            self.image = resized.copy()
+            self.reset_adjustments()
+            resize_window.destroy()
+
+        btn_frame = tk.Frame(resize_window, bg=self.colors['bg_panel'])
+        btn_frame.pack(pady=10)
+        tk.Button(btn_frame, text="Áp dụng", bg=self.colors['success'], fg='white',
+                  command=apply_resize, padx=15, pady=5).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="Hủy", bg=self.colors['accent'], fg='white',
+                  command=resize_window.destroy, padx=15, pady=5).pack(side=tk.LEFT, padx=5)
+
+    def reset_adjustments(self):
+        """Đặt lại tất cả tham số chỉnh sửa về mặc định và đồng bộ UI."""
+        self.adjustments = {
+            'brightness': 1.0,
+            'color': 1.0,
+            'contrast': 1.0,
+            'sharpen': 1.0,
+            'blur': 0.0,
+            'rotation': 0.0,
+            'flip_horizontal': False,
+            'flip_vertical': False,
+            'filter': "Không",
+            'crop_box': None,
+        }
+        self.filter_values = self.filter_values_defaults.copy()
+        self.current_filter = "Không"
+
+        if hasattr(self, 'brightness_slider'):
+            self.suspend_slider_commands = True
+            self.brightness_slider.set(self.adjustments['brightness'])
+            self.color_slider.set(self.adjustments['color'])
+            self.contrast_slider.set(self.adjustments['contrast'])
+            self.sharpen_slider.set(self.adjustments['sharpen'])
+            self.blur_slider.set(self.adjustments['blur'])
+            self.rotation_slider.set(self.adjustments['rotation'])
+            self.contour_slider.set(self.filter_values["Viền"])
+            self.blur_filter_slider.set(self.filter_values["Làm Mờ"])
+            self.bw_slider.set(self.filter_values["Đen Trắng"])
+            self.detail_slider.set(self.filter_values["Chi Tiết"])
+            self.edge_slider.set(self.filter_values["Tăng Cạnh"])
+            self.smooth_slider.set(self.filter_values["Làm Mịn"])
+            self.emboss_slider.set(self.filter_values["Làm Nổi"])
             self.filter_combo.set("Không")
-            self.current_filter = "Không"
-            self.contour_slider.set(1.0)
-            self.blur_filter_slider.set(2.0)
-            self.bw_slider.set(1.0)
-            self.detail_slider.set(1.0)
-            self.edge_slider.set(1.0)
-            self.smooth_slider.set(1.0)
-            self.emboss_slider.set(1.0)
             self.hide_filter_sliders()
+            if hasattr(self, 'zoom_slider'):
+                self.zoom_slider.set(100)
+            self.suspend_slider_commands = False
+
+        if self.image:
+            self.reapply_adjustments()
+        else:
+            self.edited_image = None
             self.update_images()
+        self.current_operation = None
+        self.view_zoom = 1.0
+
+    def start_operation(self, operation_name):
+        """Lưu trạng thái để hoàn tác, chỉ thực hiện một lần cho mỗi thao tác."""
+        if self.suspend_slider_commands:
+            return
+        if self.current_operation != operation_name:
+            self.save_state_for_undo()
+            self.current_operation = operation_name
+
+    def commit_current_operation(self, event=None):
+        """Kết thúc thao tác sau khi thả slider hoặc hoàn thành hành động."""
+        self.current_operation = None
+
+    def sync_sliders_with_adjustments(self):
+        """Đưa slider về đúng trạng thái theo adjustments."""
+        self.suspend_slider_commands = True
+        self.brightness_slider.set(self.adjustments['brightness'])
+        self.color_slider.set(self.adjustments['color'])
+        self.contrast_slider.set(self.adjustments['contrast'])
+        self.sharpen_slider.set(self.adjustments['sharpen'])
+        self.blur_slider.set(self.adjustments['blur'])
+        self.rotation_slider.set(self.adjustments['rotation'])
+        self.filter_combo.set(self.adjustments['filter'])
+        self.contour_slider.set(self.filter_values["Viền"])
+        self.blur_filter_slider.set(self.filter_values["Làm Mờ"])
+        self.bw_slider.set(self.filter_values["Đen Trắng"])
+        self.detail_slider.set(self.filter_values["Chi Tiết"])
+        self.edge_slider.set(self.filter_values["Tăng Cạnh"])
+        self.smooth_slider.set(self.filter_values["Làm Mịn"])
+        self.emboss_slider.set(self.filter_values["Làm Nổi"])
+        self.current_filter = self.adjustments.get('filter', "Không")
+        self.update_filter_slider_visibility()
+        if hasattr(self, 'zoom_slider'):
+            self.zoom_slider.set(100)
+        self.view_zoom = 1.0
+        self.suspend_slider_commands = False
+
+    def reapply_adjustments(self):
+        """Áp dụng lại toàn bộ chỉnh sửa từ ảnh gốc để đảm bảo mượt mà."""
+        if not self.image:
+            return
+
+        result = self.image.copy()
+        adj = self.adjustments
+
+        if adj['brightness'] != 1.0:
+            result = ImageEnhance.Brightness(result).enhance(adj['brightness'])
+        if adj['color'] != 1.0:
+            result = ImageEnhance.Color(result).enhance(adj['color'])
+        if adj['contrast'] != 1.0:
+            result = ImageEnhance.Contrast(result).enhance(adj['contrast'])
+        if adj['sharpen'] != 1.0:
+            result = ImageEnhance.Sharpness(result).enhance(adj['sharpen'])
+        if adj['blur'] > 0:
+            result = result.filter(ImageFilter.GaussianBlur(radius=adj['blur']))
+
+        filter_name = adj['filter']
+        self.current_filter = filter_name
+        if filter_name != "Không":
+            filter_intensity = self.filter_values.get(filter_name, 1.0)
+            img_array = np.array(result)
+            if filter_name == "Làm Mờ":
+                filtered_array = self.apply_filter_blur_optimized(img_array, filter_intensity)
+            elif filter_name == "Viền":
+                filtered_array = self.apply_filter_contour_optimized(img_array, filter_intensity)
+            elif filter_name == "Chi Tiết":
+                filtered_array = self.apply_filter_detail_optimized(img_array, filter_intensity)
+            elif filter_name == "Tăng Cạnh":
+                filtered_array = self.apply_filter_edge_enhance_optimized(img_array, filter_intensity)
+            elif filter_name == "Đen Trắng":
+                filtered_array = self.apply_filter_bw_optimized(img_array, filter_intensity)
+            elif filter_name == "Làm Mịn":
+                filtered_array = self.apply_filter_smooth_optimized(img_array, filter_intensity)
+            elif filter_name == "Làm Nổi":
+                filtered_array = self.apply_filter_emboss_optimized(img_array, filter_intensity)
+            else:
+                filtered_array = img_array
+            result = Image.fromarray(filtered_array)
+
+        if adj['rotation'] != 0.0:
+            result = result.rotate(-adj['rotation'], expand=True, fillcolor='white')
+
+        if adj['flip_horizontal']:
+            result = result.transpose(Image.FLIP_LEFT_RIGHT)
+        if adj['flip_vertical']:
+            result = result.transpose(Image.FLIP_TOP_BOTTOM)
+
+        crop_box = adj.get('crop_box')
+        if crop_box:
+            left_norm, top_norm, right_norm, bottom_norm = crop_box
+            left = max(0, min(int(result.width * left_norm), result.width - 1))
+            top = max(0, min(int(result.height * top_norm), result.height - 1))
+            right = max(left + 1, min(int(result.width * right_norm), result.width))
+            bottom = max(top + 1, min(int(result.height * bottom_norm), result.height))
+            if right - left >= 2 and bottom - top >= 2:
+                result = result.crop((left, top, right, bottom))
+
+        self.edited_image = result
+        self.update_images()
 
     def scale_image_to_canvas(self, image, canvas):
         """Scale ảnh để vừa với canvas, giữ tỷ lệ"""
@@ -1139,6 +1482,10 @@ class ImageEditorApp:
                 # Ảnh đã chỉnh sửa
                 self.edited_canvas.update_idletasks()
                 scaled_edited = self.scale_image_to_canvas(self.edited_image, self.edited_canvas)
+                if self.view_zoom != 1.0 and scaled_edited is not None:
+                    zoom_w = max(1, int(scaled_edited.width * self.view_zoom))
+                    zoom_h = max(1, int(scaled_edited.height * self.view_zoom))
+                    scaled_edited = scaled_edited.resize((zoom_w, zoom_h), Image.Resampling.LANCZOS)
                 edited_image_tk = ImageTk.PhotoImage(scaled_edited)
                 self.edited_canvas.delete("all")
                 canvas_width = self.edited_canvas.winfo_width()
@@ -1153,61 +1500,82 @@ class ImageEditorApp:
                 pass
     
     def adjust_brightness(self, value=None):
-        if self.image:
-            self.save_state_for_undo()
-            enhancer = ImageEnhance.Brightness(self.image)
-            self.edited_image = enhancer.enhance(self.brightness_slider.get())
-            self.update_images()
+        if not self.image or self.suspend_slider_commands:
+            return
+        self.start_operation("brightness")
+        new_value = float(value) if value is not None else float(self.brightness_slider.get())
+        self.adjustments['brightness'] = new_value
+        self.reapply_adjustments()
 
     def adjust_color(self, value=None):
-        if self.image:
-            self.save_state_for_undo()
-            enhancer = ImageEnhance.Color(self.image)
-            self.edited_image = enhancer.enhance(self.color_slider.get())
-            self.update_images()
+        if not self.image or self.suspend_slider_commands:
+            return
+        self.start_operation("color")
+        new_value = float(value) if value is not None else float(self.color_slider.get())
+        self.adjustments['color'] = new_value
+        self.reapply_adjustments()
 
     def adjust_contrast(self, value=None):
-        if self.image:
-            self.save_state_for_undo()
-            enhancer = ImageEnhance.Contrast(self.image)
-            self.edited_image = enhancer.enhance(self.contrast_slider.get())
-            self.update_images()
+        if not self.image or self.suspend_slider_commands:
+            return
+        self.start_operation("contrast")
+        new_value = float(value) if value is not None else float(self.contrast_slider.get())
+        self.adjustments['contrast'] = new_value
+        self.reapply_adjustments()
 
     def adjust_sharpen(self, value=None):
-        if self.image:
-            self.save_state_for_undo()
-            enhancer = ImageEnhance.Sharpness(self.image)
-            self.edited_image = enhancer.enhance(self.sharpen_slider.get())
-            self.update_images()
+        if not self.image or self.suspend_slider_commands:
+            return
+        self.start_operation("sharpen")
+        new_value = float(value) if value is not None else float(self.sharpen_slider.get())
+        self.adjustments['sharpen'] = new_value
+        self.reapply_adjustments()
 
     def apply_blur(self, value=None):
-        if self.image:
-            self.save_state_for_undo()
-            blur_radius = self.blur_slider.get()
-            if blur_radius > 0:
-                self.edited_image = self.image.filter(ImageFilter.GaussianBlur(radius=blur_radius))
-            else:
-                self.edited_image = self.image.copy()
-            self.update_images()
+        if not self.image or self.suspend_slider_commands:
+            return
+        self.start_operation("blur_basic")
+        new_value = float(value) if value is not None else float(self.blur_slider.get())
+        self.adjustments['blur'] = new_value
+        self.reapply_adjustments()
 
     def rotate_image_slider(self, value=None):
-        if self.image:
-            self.save_state_for_undo()
-            angle = self.rotation_slider.get()
-            self.edited_image = self.image.rotate(-angle, expand=True, fillcolor='white')
-            self.update_images()
+        if not self.image or self.suspend_slider_commands:
+            return
+        self.start_operation("rotation")
+        new_value = float(value) if value is not None else float(self.rotation_slider.get())
+        self.adjustments['rotation'] = new_value
+        self.reapply_adjustments()
+
+    def adjust_zoom(self, value=None):
+        if self.suspend_slider_commands:
+            return
+        if value is None and hasattr(self, 'zoom_slider'):
+            value = self.zoom_slider.get()
+        try:
+            percent = float(value)
+        except (TypeError, ValueError):
+            percent = 100.0
+        self.view_zoom = max(0.1, percent / 100.0)
+        self.update_images()
 
     def flip_horizontal(self):
-        if self.edited_image:
+        if not self.image:
+            return
             self.save_state_for_undo()
-            self.edited_image = self.edited_image.transpose(Image.FLIP_LEFT_RIGHT)
-            self.update_images()
+        current = self.adjustments.get('flip_horizontal', False)
+        self.adjustments['flip_horizontal'] = not current
+        self.reapply_adjustments()
+        self.current_operation = None
     
     def flip_vertical(self):
-        if self.edited_image:
+        if not self.image:
+            return
             self.save_state_for_undo()
-            self.edited_image = self.edited_image.transpose(Image.FLIP_TOP_BOTTOM)
-            self.update_images()
+        current = self.adjustments.get('flip_vertical', False)
+        self.adjustments['flip_vertical'] = not current
+        self.reapply_adjustments()
+        self.current_operation = None
 
     def hide_filter_sliders(self):
         """Ẩn tất cả slider bộ lọc"""
@@ -1224,11 +1592,8 @@ class ImageEditorApp:
         self.hide_filter_sliders()
         slider_frame.pack(fill=tk.X, pady=5)
     
-    def on_filter_change(self, event=None):
-        """Khi thay đổi bộ lọc"""
-        self.current_filter = self.filter_combo.get()
-        
-        # Hiện/ẩn slider tương ứng
+    def update_filter_slider_visibility(self):
+        """Hiển thị đúng slider dựa trên bộ lọc đang chọn"""
         if self.current_filter == "Viền":
             self.show_filter_slider(self.contour_slider_frame)
         elif self.current_filter == "Làm Mờ":
@@ -1246,119 +1611,91 @@ class ImageEditorApp:
         else:
             self.hide_filter_sliders()
         
-        self.apply_filter_with_intensity()
+    def on_filter_change(self, event=None):
+        """Khi thay đổi bộ lọc"""
+        if self.suspend_slider_commands:
+            return
+
+        self.current_filter = self.filter_combo.get()
+        self.adjustments['filter'] = self.current_filter
+        self.update_filter_slider_visibility()
+
+        if not self.image:
+            return
+
+        self.save_state_for_undo()
+        self.reapply_adjustments()
+        self.current_operation = None
     
     def on_contour_change(self, value=None):
         """Khi thay đổi slider viền"""
-        if self.current_filter == "Viền":
-            self.contour_slider_value = self.contour_slider.get()
-            if self.webcam_active:
-                # Trong chế độ webcam, bộ lọc sẽ được áp dụng trong update_webcam_frame
-                pass
-            else:
-                self.apply_filter_with_intensity()
+        new_value = float(value) if value is not None else float(self.contour_slider.get())
+        self.filter_values["Viền"] = new_value
+        if (self.current_filter != "Viền" or self.webcam_active or
+                self.suspend_slider_commands or not self.image):
+            return
+        self.start_operation("filter_Viền")
+        self.reapply_adjustments()
     
     def on_blur_filter_change(self, value=None):
         """Khi thay đổi slider làm mờ"""
-        if self.current_filter == "Làm Mờ":
-            self.blur_slider_value = self.blur_filter_slider.get()
-            if self.webcam_active:
-                # Trong chế độ webcam, bộ lọc sẽ được áp dụng trong update_webcam_frame
-                pass
-            else:
-                self.apply_filter_with_intensity()
+        new_value = float(value) if value is not None else float(self.blur_filter_slider.get())
+        self.filter_values["Làm Mờ"] = new_value
+        if (self.current_filter != "Làm Mờ" or self.webcam_active or
+                self.suspend_slider_commands or not self.image):
+            return
+        self.start_operation("filter_Làm Mờ")
+        self.reapply_adjustments()
     
     def on_bw_change(self, value=None):
         """Khi thay đổi slider đen trắng"""
-        if self.current_filter == "Đen Trắng":
-            self.bw_slider_value = self.bw_slider.get()
-            if self.webcam_active:
-                # Trong chế độ webcam, bộ lọc sẽ được áp dụng trong update_webcam_frame
-                pass
-            else:
-                self.apply_filter_with_intensity()
+        new_value = float(value) if value is not None else float(self.bw_slider.get())
+        self.filter_values["Đen Trắng"] = new_value
+        if (self.current_filter != "Đen Trắng" or self.webcam_active or
+                self.suspend_slider_commands or not self.image):
+            return
+        self.start_operation("filter_Đen Trắng")
+        self.reapply_adjustments()
     
     def on_detail_change(self, value=None):
         """Khi thay đổi slider chi tiết"""
-        if self.current_filter == "Chi Tiết":
-            self.detail_slider_value = self.detail_slider.get()
-            if self.webcam_active:
-                # Trong chế độ webcam, bộ lọc sẽ được áp dụng trong update_webcam_frame
-                pass
-            else:
-                self.apply_filter_with_intensity()
+        new_value = float(value) if value is not None else float(self.detail_slider.get())
+        self.filter_values["Chi Tiết"] = new_value
+        if (self.current_filter != "Chi Tiết" or self.webcam_active or
+                self.suspend_slider_commands or not self.image):
+            return
+        self.start_operation("filter_Chi Tiết")
+        self.reapply_adjustments()
     
     def on_edge_change(self, value=None):
         """Khi thay đổi slider tăng cạnh"""
-        if self.current_filter == "Tăng Cạnh":
-            self.edge_slider_value = self.edge_slider.get()
-            if self.webcam_active:
-                # Trong chế độ webcam, bộ lọc sẽ được áp dụng trong update_webcam_frame
-                pass
-            else:
-                self.apply_filter_with_intensity()
+        new_value = float(value) if value is not None else float(self.edge_slider.get())
+        self.filter_values["Tăng Cạnh"] = new_value
+        if (self.current_filter != "Tăng Cạnh" or self.webcam_active or
+                self.suspend_slider_commands or not self.image):
+            return
+        self.start_operation("filter_Tăng Cạnh")
+        self.reapply_adjustments()
     
     def on_smooth_change(self, value=None):
         """Khi thay đổi slider làm mịn"""
-        if self.current_filter == "Làm Mịn":
-            self.smooth_slider_value = self.smooth_slider.get()
-            if self.webcam_active:
-                # Trong chế độ webcam, bộ lọc sẽ được áp dụng trong update_webcam_frame
-                pass
-            else:
-                self.apply_filter_with_intensity()
+        new_value = float(value) if value is not None else float(self.smooth_slider.get())
+        self.filter_values["Làm Mịn"] = new_value
+        if (self.current_filter != "Làm Mịn" or self.webcam_active or
+                self.suspend_slider_commands or not self.image):
+            return
+        self.start_operation("filter_Làm Mịn")
+        self.reapply_adjustments()
     
     def on_emboss_change(self, value=None):
         """Khi thay đổi slider làm nổi"""
-        if self.current_filter == "Làm Nổi":
-            self.emboss_slider_value = self.emboss_slider.get()
-            if self.webcam_active:
-                # Trong chế độ webcam, bộ lọc sẽ được áp dụng trong update_webcam_frame
-                pass
-            else:
-                self.apply_filter_with_intensity()
-    
-    def apply_filter_with_intensity(self, value=None):
-        """Áp dụng bộ lọc với cường độ điều chỉnh được - sử dụng các hàm tối ưu"""
-        if self.image:
-            self.save_state_for_undo()
-            filter_name = self.current_filter
-            
-            # Chuyển PIL Image sang numpy array để xử lý
-            img_array = np.array(self.image)
-            
-            if filter_name == "Không":
-                self.edited_image = self.image.copy()
-            elif filter_name == "Làm Mờ":
-                # Sử dụng hàm tối ưu
-                filtered_array = self.apply_filter_blur_optimized(img_array, self.blur_slider_value)
-                self.edited_image = Image.fromarray(filtered_array)
-            elif filter_name == "Viền":
-                # Sử dụng hàm tối ưu
-                filtered_array = self.apply_filter_contour_optimized(img_array, self.contour_slider_value)
-                self.edited_image = Image.fromarray(filtered_array)
-            elif filter_name == "Chi Tiết":
-                # Sử dụng hàm tối ưu
-                filtered_array = self.apply_filter_detail_optimized(img_array, self.detail_slider_value)
-                self.edited_image = Image.fromarray(filtered_array)
-            elif filter_name == "Tăng Cạnh":
-                # Sử dụng hàm tối ưu
-                filtered_array = self.apply_filter_edge_enhance_optimized(img_array, self.edge_slider_value)
-                self.edited_image = Image.fromarray(filtered_array)
-            elif filter_name == "Đen Trắng":
-                # Sử dụng hàm tối ưu
-                filtered_array = self.apply_filter_bw_optimized(img_array, self.bw_slider_value)
-                self.edited_image = Image.fromarray(filtered_array)
-            elif filter_name == "Làm Mịn":
-                # Sử dụng hàm tối ưu
-                filtered_array = self.apply_filter_smooth_optimized(img_array, self.smooth_slider_value)
-                self.edited_image = Image.fromarray(filtered_array)
-            elif filter_name == "Làm Nổi":
-                # Sử dụng hàm tối ưu
-                filtered_array = self.apply_filter_emboss_optimized(img_array, self.emboss_slider_value)
-                self.edited_image = Image.fromarray(filtered_array)
-            
-            self.update_images()
+        new_value = float(value) if value is not None else float(self.emboss_slider.get())
+        self.filter_values["Làm Nổi"] = new_value
+        if (self.current_filter != "Làm Nổi" or self.webcam_active or
+                self.suspend_slider_commands or not self.image):
+            return
+        self.start_operation("filter_Làm Nổi")
+        self.reapply_adjustments()
     
     def ai_auto_edit(self):
         """Tự động chỉnh sửa ảnh bằng AI - áp dụng nhiều cải tiến tự động thông minh"""
@@ -1443,15 +1780,27 @@ class ImageEditorApp:
 
     def save_state_for_undo(self):
         if self.edited_image:
-            self.undo_stack.append(self.edited_image.copy())
-            # Giới hạn stack để tránh tốn bộ nhớ
+            state = {
+                'edited_image': self.edited_image.copy(),
+                'base_image': self.image.copy() if self.image else None,
+                'adjustments': copy.deepcopy(self.adjustments),
+                'filter_values': copy.deepcopy(self.filter_values),
+            }
+            self.undo_stack.append(state)
             if len(self.undo_stack) > 20:
                 self.undo_stack.pop(0)
 
     def undo_last_change(self):
         if self.undo_stack:
-            self.edited_image = self.undo_stack.pop()
+            state = self.undo_stack.pop()
+            if state.get('base_image') is not None:
+                self.image = state['base_image']
+            self.adjustments = state.get('adjustments', self.adjustments)
+            self.filter_values = state.get('filter_values', self.filter_values_defaults.copy())
+            self.edited_image = state.get('edited_image', self.edited_image)
+            self.sync_sliders_with_adjustments()
             self.update_images()
+            self.current_operation = None
         else:
             messagebox.showinfo("Thông tin", "Không có thao tác nào để hoàn tác!")
 
