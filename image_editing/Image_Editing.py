@@ -1790,6 +1790,7 @@ class ImageEditorApp:
             if len(self.undo_stack) > 20:
                 self.undo_stack.pop(0)
 
+
     def undo_last_change(self):
         if self.undo_stack:
             state = self.undo_stack.pop()
