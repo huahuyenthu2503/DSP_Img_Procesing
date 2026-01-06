@@ -1,12 +1,13 @@
 import tkinter as tk
-from tkinter import filedialog, messagebox
-from tkinter import ttk
-from PIL import Image, ImageTk, ImageEnhance, ImageFilter
+from tkinter import filedialog, messagebox, ttk, colorchooser
+from PIL import Image, ImageTk, ImageEnhance, ImageFilter, ImageDraw, ImageFont, ImageOps
 import cv2
 import numpy as np
 import os
 from datetime import datetime
 import copy
+import threading
+import random
 
 
 class ImageEditorApp:
@@ -64,6 +65,11 @@ class ImageEditorApp:
             os.makedirs(self.webcam_folder)
         if not os.path.exists(self.saved_images_folder):
             os.makedirs(self.saved_images_folder)
+        
+        # Khởi tạo các module mới (THÊM PresetManager)
+        self.watermark_manager = WatermarkManager(self)
+        self.ai_assistant = AIAssistant(self)
+        self.preset_manager = PresetManager(self)  # THÊM DÒNG NÀY
         
         # Panel bên trái - Công cụ với scrollbar
         tools_container = tk.Frame(root, bg=self.colors['bg_main'])
@@ -267,6 +273,29 @@ class ImageEditorApp:
         
         # Ẩn các slider ban đầu, chỉ hiện khi chọn bộ lọc tương ứng
         self.hide_filter_sliders()
+        
+        # ========== PHẦN TÍNH NĂNG NÂNG CAO ==========
+        # Phần tính năng nâng cao
+        advanced_frame = tk.LabelFrame(self.tools_panel, text="Tính Năng Nâng Cao", 
+                                       font=("Arial", 11, "bold"),
+                                       bg=self.colors['bg_panel'], 
+                                       fg=self.colors['text_light'],
+                                       padx=10, pady=10)
+        advanced_frame.pack(fill=tk.X, padx=15, pady=10)
+        
+        tk.Button(advanced_frame, text=" Thêm Watermark", 
+                 bg=self.colors['bg_button'], fg='white',
+                 command=self.open_watermark_dialog, **btn_style).pack(fill=tk.X, pady=3)
+        
+        tk.Button(advanced_frame, text=" AI Assistant", 
+                 bg=self.colors['accent'], fg='white',
+                 command=self.open_ai_assistant, **btn_style).pack(fill=tk.X, pady=3)
+        
+        # THÊM NÚT PRESET FILTERS
+        tk.Button(advanced_frame, text=" Preset Filters", 
+                 bg=self.colors['success'], fg='white',
+                 command=self.open_preset_panel, **btn_style).pack(fill=tk.X, pady=3)
+        # ========== KẾT THÚC PHẦN MỚI ==========
         
         # Phần thao tác
         action_frame = tk.LabelFrame(self.tools_panel, text="Thao Tác", 
@@ -664,7 +693,22 @@ class ImageEditorApp:
         
         return slider, frame
 
-
+    # ========== CÁC PHƯƠNG THỨC MỚI ==========
+    
+    def open_watermark_dialog(self):
+        """Mở dialog thêm watermark"""
+        self.watermark_manager.open_watermark_dialog()
+    
+    def open_ai_assistant(self):
+        """Mở AI assistant"""
+        self.ai_assistant.open_assistant_panel()
+    
+    def open_preset_panel(self):
+        """Mở panel preset filters"""
+        self.preset_manager.open_preset_panel()
+    
+    # ========== CÁC PHƯƠNG THỨC CŨ ==========
+    
     def open_image(self):
         file_path = filedialog.askopenfilename(
             filetypes=[("Image files", "*.jpg *.jpeg *.png *.bmp *.gif")])
@@ -1562,7 +1606,7 @@ class ImageEditorApp:
     def flip_horizontal(self):
         if not self.image:
             return
-            self.save_state_for_undo()
+        self.save_state_for_undo()
         current = self.adjustments.get('flip_horizontal', False)
         self.adjustments['flip_horizontal'] = not current
         self.reapply_adjustments()
@@ -1571,7 +1615,7 @@ class ImageEditorApp:
     def flip_vertical(self):
         if not self.image:
             return
-            self.save_state_for_undo()
+        self.save_state_for_undo()
         current = self.adjustments.get('flip_vertical', False)
         self.adjustments['flip_vertical'] = not current
         self.reapply_adjustments()
@@ -1790,7 +1834,6 @@ class ImageEditorApp:
             if len(self.undo_stack) > 20:
                 self.undo_stack.pop(0)
 
-
     def undo_last_change(self):
         if self.undo_stack:
             state = self.undo_stack.pop()
@@ -1806,7 +1849,1457 @@ class ImageEditorApp:
             messagebox.showinfo("Thông tin", "Không có thao tác nào để hoàn tác!")
 
 
-if __name__ == "__main__":
-    root = tk.Tk()
-    app = ImageEditorApp(root)
-    root.mainloop()
+# ========== CLASS PRESET MANAGER ==========
+
+class PresetManager:
+    """Quản lý các preset/hiệu ứng có sẵn"""
+    
+    def __init__(self, parent):
+        self.parent = parent
+        
+        # Định nghĩa các preset
+        self.presets = {
+            'Vintage': {
+                'description': 'Hiệu ứng cổ điển với tone màu vàng nâu',
+                'brightness': 0.95,
+                'contrast': 1.1,
+                'saturation': 0.85,
+                'color': (1.0, 0.9, 0.8),  # RGB multipliers
+                'vignette': 0.3,
+                'grain': 0.1,
+                'sepia': 0.3
+            },
+            'Noir': {
+                'description': 'Ảnh đen trắng cổ điển film noir',
+                'brightness': 0.9,
+                'contrast': 1.3,
+                'saturation': 0.0,  # Black & white
+                'color': (1.0, 1.0, 1.0),
+                'vignette': 0.4,
+                'grain': 0.15,
+                'high_contrast': True
+            },
+            'Cinematic': {
+                'description': 'Hiệu ứng điện ảnh với màu xanh đặc trưng',
+                'brightness': 0.9,
+                'contrast': 1.25,
+                'saturation': 1.1,
+                'color': (0.9, 1.0, 1.2),  # Tăng blue, giảm red
+                'vignette': 0.25,
+                'blacks': 0.1,  # Tăng màu đen
+                'cinematic_lut': True
+            },
+            'Warm Sunshine': {
+                'description': 'Ánh nắng ấm áp vàng cam',
+                'brightness': 1.15,
+                'contrast': 1.1,
+                'saturation': 1.2,
+                'color': (1.3, 1.1, 0.9),  # Tăng đỏ và vàng
+                'vignette': 0.1,
+                'glow': 0.2
+            },
+            'Cool Blue': {
+                'description': 'Tone màu xanh mát lạnh',
+                'brightness': 1.05,
+                'contrast': 1.15,
+                'saturation': 0.95,
+                'color': (0.8, 0.9, 1.3),  # Tăng xanh dương
+                'vignette': 0.2,
+                'temperature': -20  # Lạnh hơn
+            },
+            'Retro 80s': {
+                'description': 'Phong cách những năm 80 với màu neon',
+                'brightness': 1.1,
+                'contrast': 1.3,
+                'saturation': 1.4,
+                'color': (1.2, 0.9, 1.3),  # Tăng hồng và xanh
+                'grain': 0.08,
+                'glitch': 0.05,
+                'vibrant': True
+            },
+            'Moody Dark': {
+                'description': 'Tâm trạng u tối với tone tối',
+                'brightness': 0.7,
+                'contrast': 1.4,
+                'saturation': 0.8,
+                'color': (0.9, 0.9, 1.0),
+                'vignette': 0.5,
+                'shadows': 0.3,
+                'moody': True
+            },
+            'Spring Bloom': {
+                'description': 'Mùa xuân với màu pastel và hoa',
+                'brightness': 1.2,
+                'contrast': 1.0,
+                'saturation': 1.3,
+                'color': (1.1, 1.3, 0.9),  # Tăng xanh lá
+                'vibrance': 0.3,
+                'bloom': 0.15
+            },
+            'Autumn Gold': {
+                'description': 'Mùa thu vàng rực',
+                'brightness': 1.05,
+                'contrast': 1.2,
+                'saturation': 1.25,
+                'color': (1.4, 1.1, 0.7),  # Vàng cam
+                'vignette': 0.15,
+                'warmth': 0.4
+            },
+            'Urban Grunge': {
+                'description': 'Hiệu ứng đô thị với tone xám và hạt',
+                'brightness': 0.85,
+                'contrast': 1.35,
+                'saturation': 0.7,
+                'color': (1.0, 0.95, 0.9),
+                'grain': 0.2,
+                'texture': 0.1,
+                'grunge': True
+            },
+            'Dreamy Soft': {
+                'description': 'Hiệu ứng mơ màng nhẹ nhàng',
+                'brightness': 1.1,
+                'contrast': 0.9,
+                'saturation': 0.8,
+                'color': (1.05, 1.0, 1.1),
+                'blur': 0.05,
+                'glow': 0.3,
+                'soft_focus': True
+            },
+            'HDR Pro': {
+                'description': 'HDR mạnh với chi tiết cao',
+                'brightness': 1.0,
+                'contrast': 1.5,
+                'saturation': 1.15,
+                'color': (1.0, 1.0, 1.0),
+                'clarity': 0.4,
+                'sharpen': 1.3,
+                'hdr': True
+            }
+        }
+        
+    def open_preset_panel(self):
+        """Mở panel chọn preset"""
+        preset_window = tk.Toplevel(self.parent.root)
+        preset_window.title(" Preset Filters - Hiệu ứng có sẵn")
+        preset_window.geometry("800x600")
+        preset_window.configure(bg=self.parent.colors['bg_main'])
+        preset_window.transient(self.parent.root)
+        
+        # Header
+        header_frame = tk.Frame(preset_window, bg=self.parent.colors['bg_button'], height=80)
+        header_frame.pack(fill=tk.X)
+        header_frame.pack_propagate(False)
+        
+        tk.Label(header_frame, text=" PRESET FILTERS", 
+                font=("Arial", 20, "bold"),
+                bg=self.parent.colors['bg_button'],
+                fg='white').pack(pady=20)
+        
+        tk.Label(header_frame, text="Chọn hiệu ứng yêu thích và nhấn Áp dụng",
+                font=("Arial", 11),
+                bg=self.parent.colors['bg_button'],
+                fg=self.parent.colors['text_light']).pack()
+        
+        # Main content với scrollbar
+        main_frame = tk.Frame(preset_window, bg=self.parent.colors['bg_main'])
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Canvas và scrollbar
+        canvas = tk.Canvas(main_frame, bg=self.parent.colors['bg_main'], highlightthickness=0)
+        scrollbar = tk.Scrollbar(main_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas, bg=self.parent.colors['bg_main'])
+        
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        def configure_scroll(event):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+        
+        scrollable_frame.bind("<Configure>", configure_scroll)
+        
+        # Bind mouse wheel
+        def on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        
+        canvas.bind_all("<MouseWheel>", on_mousewheel)
+        
+        # Tạo các preset card
+        self.create_preset_cards(scrollable_frame)
+        
+        # Buttons
+        button_frame = tk.Frame(preset_window, bg=self.parent.colors['bg_main'])
+        button_frame.pack(fill=tk.X, pady=10, padx=20)
+        
+        tk.Button(button_frame, text="Đóng", 
+                 bg=self.parent.colors['bg_secondary'], fg='white',
+                 command=preset_window.destroy,
+                 font=("Arial", 11), padx=20, pady=8).pack(side=tk.RIGHT, padx=5)
+        
+        tk.Button(button_frame, text="Random Preset", 
+                 bg=self.parent.colors['warning'], fg='white',
+                 command=lambda: self.apply_random_preset(),
+                 font=("Arial", 11), padx=20, pady=8).pack(side=tk.RIGHT, padx=5)
+        
+        self.preset_window = preset_window
+    
+    def create_preset_cards(self, parent):
+        """Tạo card cho từng preset"""
+        row_frame = None
+        for i, (preset_name, preset_data) in enumerate(self.presets.items()):
+            if i % 3 == 0:
+                row_frame = tk.Frame(parent, bg=self.parent.colors['bg_main'])
+                row_frame.pack(fill=tk.X, pady=10)
+            
+            # Tạo card
+            card = tk.Frame(row_frame, 
+                           bg=self.parent.colors['bg_panel'],
+                           relief=tk.RAISED, 
+                           bd=2)
+            card.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10)
+            
+            # Màu sắc đại diện cho preset
+            color_frame = tk.Frame(card, height=80, 
+                                  bg=self.get_preset_color(preset_name),
+                                  cursor="hand2")
+            color_frame.pack(fill=tk.X)
+            color_frame.bind("<Button-1>", lambda e, name=preset_name: self.preview_preset(name))
+            
+            # Tên preset
+            tk.Label(card, text=preset_name, 
+                    font=("Arial", 12, "bold"),
+                    bg=self.parent.colors['bg_panel'],
+                    fg=self.parent.colors['text_light']).pack(pady=5)
+            
+            # Mô tả
+            desc_label = tk.Label(card, text=preset_data['description'],
+                                 wraplength=200,
+                                 bg=self.parent.colors['bg_panel'],
+                                 fg=self.parent.colors['text_light'],
+                                 font=("Arial", 9))
+            desc_label.pack(pady=5, padx=10)
+            
+            # Nút áp dụng
+            apply_btn = tk.Button(card, text="Áp dụng",
+                                 bg=self.parent.colors['bg_button'],
+                                 fg='white',
+                                 command=lambda name=preset_name: self.apply_preset(name),
+                                 cursor="hand2",
+                                 padx=10, pady=5)
+            apply_btn.pack(pady=10)
+            
+            # Nút xem trước
+            preview_btn = tk.Button(card, text=" Xem trước",
+                                   bg=self.parent.colors['bg_secondary'],
+                                   fg='white',
+                                   command=lambda name=preset_name: self.preview_preset(name),
+                                   cursor="hand2",
+                                   padx=5, pady=3)
+            preview_btn.pack(pady=(0, 10))
+    
+    def get_preset_color(self, preset_name):
+        """Lấy màu đại diện cho preset"""
+        color_map = {
+            'Vintage': '#8B7355',        # Nâu vintage
+            'Noir': '#2C2C2C',           # Đen film noir
+            'Cinematic': '#0F4C75',      # Xanh điện ảnh
+            'Warm Sunshine': '#FFA500',  # Cam vàng
+            'Cool Blue': '#4682B4',      # Xanh mát
+            'Retro 80s': '#FF00FF',      # Hồng neon
+            'Moody Dark': '#363636',     # Xám tối
+            'Spring Bloom': '#98FB98',   # Xanh lá pastel
+            'Autumn Gold': '#DAA520',    # Vàng mùa thu
+            'Urban Grunge': '#708090',   # Xám xanh
+            'Dreamy Soft': '#DDA0DD',    # Tím nhạt
+            'HDR Pro': '#FFD700'         # Vàng chói
+        }
+        return color_map.get(preset_name, self.parent.colors['bg_button'])
+    
+    def apply_preset(self, preset_name):
+        """Áp dụng preset cho ảnh"""
+        if not self.parent.image:
+            messagebox.showwarning("Cảnh báo", "Vui lòng mở ảnh trước!")
+            return
+        
+        preset = self.presets.get(preset_name)
+        if not preset:
+            return
+        
+        # Lưu trạng thái để undo
+        self.parent.save_state_for_undo()
+        
+        # Áp dụng preset
+        self.apply_preset_effects(preset)
+        
+        # Đóng cửa sổ preset
+        if hasattr(self, 'preset_window'):
+            self.preset_window.destroy()
+        
+        messagebox.showinfo("Thành công", f"Đã áp dụng preset '{preset_name}'!")
+    
+    def apply_preset_effects(self, preset):
+        """Áp dụng các hiệu ứng của preset"""
+        try:
+            # Chuyển ảnh sang numpy array
+            img_array = np.array(self.parent.image)
+            
+            # 1. Điều chỉnh brightness, contrast, saturation
+            brightness = preset.get('brightness', 1.0)
+            contrast = preset.get('contrast', 1.0)
+            saturation = preset.get('saturation', 1.0)
+            
+            # Áp dụng bằng PIL
+            pil_image = self.parent.image.copy()
+            
+            if brightness != 1.0:
+                enhancer = ImageEnhance.Brightness(pil_image)
+                pil_image = enhancer.enhance(brightness)
+            
+            if contrast != 1.0:
+                enhancer = ImageEnhance.Contrast(pil_image)
+                pil_image = enhancer.enhance(contrast)
+            
+            if saturation != 1.0:
+                enhancer = ImageEnhance.Color(pil_image)
+                pil_image = enhancer.enhance(saturation)
+            
+            # Chuyển lại sang array
+            img_array = np.array(pil_image)
+            
+            # 2. Điều chỉnh màu sắc (color balance)
+            color_mult = preset.get('color', (1.0, 1.0, 1.0))
+            if len(img_array.shape) == 3:
+                img_array = img_array.astype(np.float32)
+                img_array[:, :, 0] = np.clip(img_array[:, :, 0] * color_mult[0], 0, 255)
+                img_array[:, :, 1] = np.clip(img_array[:, :, 1] * color_mult[1], 0, 255)
+                img_array[:, :, 2] = np.clip(img_array[:, :, 2] * color_mult[2], 0, 255)
+                img_array = img_array.astype(np.uint8)
+            
+            # 3. Vignette effect
+            vignette = preset.get('vignette', 0.0)
+            if vignette > 0 and len(img_array.shape) == 3:
+                img_array = self.apply_vignette(img_array, vignette)
+            
+            # 4. Grain effect
+            grain = preset.get('grain', 0.0)
+            if grain > 0:
+                img_array = self.apply_grain(img_array, grain)
+            
+            # 5. Sepia (cho vintage)
+            sepia = preset.get('sepia', 0.0)
+            if sepia > 0 and len(img_array.shape) == 3:
+                img_array = self.apply_sepia(img_array, sepia)
+            
+            # 6. Hiệu ứng đặc biệt theo preset
+            if preset.get('cinematic_lut', False):
+                img_array = self.apply_cinematic_lut(img_array)
+            
+            if preset.get('soft_focus', False):
+                img_array = self.apply_soft_focus(img_array)
+            
+            if preset.get('grunge', False):
+                img_array = self.apply_grunge_effect(img_array)
+            
+            if preset.get('hdr', False):
+                img_array = self.apply_hdr_effect(img_array)
+            
+            # Cập nhật ảnh
+            self.parent.edited_image = Image.fromarray(img_array)
+            self.parent.update_images()
+            
+        except Exception as e:
+            print(f"Error applying preset: {e}")
+            messagebox.showerror("Lỗi", f"Không thể áp dụng preset: {str(e)}")
+    
+    def apply_vignette(self, img_array, strength=0.3):
+        """Áp dụng hiệu ứng vignette (tối góc ảnh)"""
+        h, w = img_array.shape[:2]
+        
+        # Tạo mask vignette (ellipse)
+        X, Y = np.ogrid[:h, :w]
+        center_x, center_y = w // 2, h // 2
+        radius_x, radius_y = w / 2, h / 2
+        
+        # Tính khoảng cách từ mỗi pixel đến tâm
+        mask = ((X - center_y) / radius_y) ** 2 + ((Y - center_x) / radius_x) ** 2
+        mask = np.clip(1 - mask * strength, 0, 1)
+        
+        # Áp dụng mask cho từng channel
+        if len(img_array.shape) == 3:
+            mask = mask[:, :, np.newaxis]
+            result = (img_array.astype(np.float32) * mask).astype(np.uint8)
+        else:
+            result = (img_array.astype(np.float32) * mask).astype(np.uint8)
+        
+        return result
+    
+    def apply_grain(self, img_array, strength=0.1):
+        """Thêm grain/film noise"""
+        noise = np.random.randn(*img_array.shape) * 255 * strength
+        result = np.clip(img_array.astype(np.float32) + noise, 0, 255).astype(np.uint8)
+        return result
+    
+    def apply_sepia(self, img_array, strength=0.5):
+        """Áp dụng hiệu ứng sepia"""
+        if len(img_array.shape) != 3:
+            return img_array
+        
+        # Sepia matrix
+        sepia_filter = np.array([
+            [0.393, 0.769, 0.189],
+            [0.349, 0.686, 0.168],
+            [0.272, 0.534, 0.131]
+        ])
+        
+        # Blend với ảnh gốc theo strength
+        sepia_result = img_array.dot(sepia_filter.T)
+        sepia_result = np.clip(sepia_result, 0, 255)
+        
+        result = (img_array * (1 - strength) + sepia_result * strength).astype(np.uint8)
+        return result
+    
+    def apply_cinematic_lut(self, img_array):
+        """Áp dụng LUT cinematic (teal & orange)"""
+        if len(img_array.shape) != 3:
+            return img_array
+        
+        # Tăng contrast và saturation
+        lab = cv2.cvtColor(img_array, cv2.COLOR_RGB2LAB)
+        l, a, b = cv2.split(lab)
+        
+        # Tăng contrast cho L channel
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+        l = clahe.apply(l)
+        
+        # Điều chỉnh màu teal & orange
+        a = a.astype(np.float32)
+        b = b.astype(np.float32)
+        
+        # Tăng màu cam (giảm xanh dương, tăng vàng)
+        b = np.clip(b * 1.1, 0, 255)
+        a = np.clip(a * 0.9, 0, 255)
+        
+        lab = cv2.merge((l, a.astype(np.uint8), b.astype(np.uint8)))
+        result = cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
+        
+        return result
+    
+    def apply_soft_focus(self, img_array):
+        """Hiệu ứng soft focus/dreamy"""
+        if len(img_array.shape) != 3:
+            return img_array
+        
+        # Làm mờ nhẹ
+        blurred = cv2.GaussianBlur(img_array, (0, 0), 3)
+        
+        # Blend với ảnh gốc
+        alpha = 0.7
+        result = cv2.addWeighted(img_array, alpha, blurred, 1 - alpha, 0)
+        
+        return result
+    
+    def apply_grunge_effect(self, img_array):
+        """Hiệu ứng urban grunge"""
+        if len(img_array.shape) != 3:
+            return img_array
+        
+        # Giảm saturation
+        hsv = cv2.cvtColor(img_array, cv2.COLOR_RGB2HSV)
+        hsv[:, :, 1] = hsv[:, :, 1] * 0.7
+        
+        # Tăng contrast
+        lab = cv2.cvtColor(img_array, cv2.COLOR_RGB2LAB)
+        l, a, b = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+        l = clahe.apply(l)
+        lab = cv2.merge((l, a, b))
+        
+        result = cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
+        result = cv2.cvtColor(result, cv2.COLOR_RGB2HSV)
+        result = cv2.cvtColor(result, cv2.COLOR_HSV2RGB)
+        
+        return result
+    
+    def apply_hdr_effect(self, img_array):
+        """Hiệu ứng HDR mạnh"""
+        if len(img_array.shape) != 3:
+            return img_array
+        
+        # Tone mapping để tăng dynamic range
+        lab = cv2.cvtColor(img_array, cv2.COLOR_RGB2LAB)
+        l, a, b = cv2.split(lab)
+        
+        # CLAHE mạnh
+        clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8,8))
+        l = clahe.apply(l)
+        
+        # Tăng saturation
+        lab = cv2.merge((l, a, b))
+        result = cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
+        
+        # Local contrast enhancement
+        result = cv2.detailEnhance(result, sigma_s=10, sigma_r=0.15)
+        
+        return result
+    
+    def preview_preset(self, preset_name):
+        """Xem trước preset trên ảnh nhỏ"""
+        if not self.parent.image:
+            return
+        
+        preset = self.presets.get(preset_name)
+        if not preset:
+            return
+        
+        # Tạo ảnh preview nhỏ
+        preview_size = (200, 150)
+        preview_image = self.parent.image.copy()
+        preview_image.thumbnail(preview_size, Image.Resampling.LANCZOS)
+        
+        # Áp dụng preset lên preview
+        img_array = np.array(preview_image)
+        
+        # Áp dụng các hiệu ứng cơ bản
+        brightness = preset.get('brightness', 1.0)
+        contrast = preset.get('contrast', 1.0)
+        saturation = preset.get('saturation', 1.0)
+        
+        pil_preview = Image.fromarray(img_array)
+        
+        if brightness != 1.0:
+            enhancer = ImageEnhance.Brightness(pil_preview)
+            pil_preview = enhancer.enhance(brightness)
+        
+        if contrast != 1.0:
+            enhancer = ImageEnhance.Contrast(pil_preview)
+            pil_preview = enhancer.enhance(contrast)
+        
+        if saturation != 1.0:
+            enhancer = ImageEnhance.Color(pil_preview)
+            pil_preview = enhancer.enhance(saturation)
+        
+        # Hiển thị preview popup
+        preview_window = tk.Toplevel(self.parent.root)
+        preview_window.title(f"Preview: {preset_name}")
+        preview_window.geometry("250x200")
+        preview_window.configure(bg=self.parent.colors['bg_main'])
+        
+        # Hiển thị ảnh preview
+        photo = ImageTk.PhotoImage(pil_preview)
+        label = tk.Label(preview_window, image=photo, bg=self.parent.colors['bg_main'])
+        label.image = photo
+        label.pack(pady=10)
+        
+        # Tên preset
+        tk.Label(preview_window, text=preset_name, 
+                font=("Arial", 12, "bold"),
+                bg=self.parent.colors['bg_main'],
+                fg=self.parent.colors['text_light']).pack()
+        
+        # Mô tả
+        tk.Label(preview_window, text=preset['description'],
+                wraplength=230,
+                bg=self.parent.colors['bg_main'],
+                fg=self.parent.colors['text_light'],
+                font=("Arial", 9)).pack(pady=5)
+        
+        # Auto close sau 3 giây
+        preview_window.after(3000, preview_window.destroy)
+    
+    def apply_random_preset(self):
+        """Áp dụng preset ngẫu nhiên"""
+        if not self.parent.image:
+            return
+        
+        import random
+        preset_names = list(self.presets.keys())
+        random_preset = random.choice(preset_names)
+        
+        self.apply_preset(random_preset)
+
+
+# ========== CÁC LỚP KHÁC ==========
+
+class WatermarkManager:
+    def __init__(self, parent):
+        self.parent = parent
+        self.watermark_cache = {}  # Cache watermark images
+        
+    def open_watermark_dialog(self, image=None):
+        """Mở dialog thêm watermark"""
+        if image is None and self.parent.edited_image is None:
+            messagebox.showwarning("Cảnh báo", "Vui lòng mở ảnh trước!")
+            return
+        
+        target_image = image if image else self.parent.edited_image
+        
+        dialog = tk.Toplevel(self.parent.root)
+        dialog.title("Thêm Watermark")
+        dialog.geometry("500x600")
+        dialog.configure(bg=self.parent.colors['bg_main'])
+        dialog.transient(self.parent.root)
+        dialog.grab_set()
+        
+        # Preview frame
+        preview_frame = tk.Frame(dialog, bg=self.parent.colors['bg_panel'])
+        preview_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Canvas preview
+        self.preview_canvas = tk.Canvas(preview_frame, bg='#1A1A1A')
+        self.preview_canvas.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Control panel
+        control_frame = tk.Frame(dialog, bg=self.parent.colors['bg_main'])
+        control_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        # Watermark type: Text or Image
+        watermark_type = tk.StringVar(value="text")
+        
+        tk.Radiobutton(control_frame, text="Text Watermark", 
+                      variable=watermark_type, value="text",
+                      command=lambda: self.toggle_watermark_type("text", text_frame, image_frame),
+                      bg=self.parent.colors['bg_main'], fg=self.parent.colors['text_light']).pack()
+        
+        tk.Radiobutton(control_frame, text="Image Watermark", 
+                      variable=watermark_type, value="image",
+                      command=lambda: self.toggle_watermark_type("image", text_frame, image_frame),
+                      bg=self.parent.colors['bg_main'], fg=self.parent.colors['text_light']).pack()
+        
+        # Text watermark controls
+        text_frame = tk.Frame(control_frame, bg=self.parent.colors['bg_main'])
+        
+        tk.Label(text_frame, text="Text:", 
+                bg=self.parent.colors['bg_main'], fg=self.parent.colors['text_light']).pack()
+        text_entry = tk.Entry(text_frame, width=30)
+        text_entry.pack()
+        text_entry.insert(0, "© Your Name")
+        
+        tk.Label(text_frame, text="Font Size:", 
+                bg=self.parent.colors['bg_main'], fg=self.parent.colors['text_light']).pack()
+        font_size_slider = tk.Scale(text_frame, from_=10, to=100, orient="horizontal")
+        font_size_slider.set(36)
+        font_size_slider.pack(fill=tk.X)
+        
+        tk.Label(text_frame, text="Opacity:", 
+                bg=self.parent.colors['bg_main'], fg=self.parent.colors['text_light']).pack()
+        opacity_slider = tk.Scale(text_frame, from_=0, to=100, orient="horizontal")
+        opacity_slider.set(50)
+        opacity_slider.pack(fill=tk.X)
+        
+        # Image watermark controls
+        image_frame = tk.Frame(control_frame, bg=self.parent.colors['bg_main'])
+        
+        tk.Button(image_frame, text="Chọn ảnh watermark", 
+                 command=self.select_watermark_image).pack()
+        
+        tk.Label(image_frame, text="Scale (%):", 
+                bg=self.parent.colors['bg_main'], fg=self.parent.colors['text_light']).pack()
+        scale_slider = tk.Scale(image_frame, from_=10, to=200, orient="horizontal")
+        scale_slider.set(50)
+        scale_slider.pack(fill=tk.X)
+        
+        tk.Label(image_frame, text="Opacity:", 
+                bg=self.parent.colors['bg_main'], fg=self.parent.colors['text_light']).pack()
+        image_opacity_slider = tk.Scale(image_frame, from_=0, to=100, orient="horizontal")
+        image_opacity_slider.set(70)
+        image_opacity_slider.pack(fill=tk.X)
+        
+        # Common controls
+        common_frame = tk.Frame(control_frame, bg=self.parent.colors['bg_main'])
+        common_frame.pack(fill=tk.X, pady=10)
+        
+        tk.Label(common_frame, text="Position:", 
+                bg=self.parent.colors['bg_main'], fg=self.parent.colors['text_light']).pack()
+        
+        position_var = tk.StringVar(value="bottom-right")
+        positions_frame = tk.Frame(common_frame, bg=self.parent.colors['bg_main'])
+        positions_frame.pack()
+        
+        positions = [
+            ("TR", "top-right"), ("TC", "top-center"), ("TL", "top-left"),
+            ("ML", "middle-left"), ("C", "center"), ("MR", "middle-right"),
+            ("BL", "bottom-left"), ("BC", "bottom-center"), ("BR", "bottom-right"),
+            ("Tiled", "tiled"), ("Diagonal", "diagonal")
+        ]
+        
+        for i, (label, value) in enumerate(positions):
+            btn = tk.Radiobutton(positions_frame, text=label, 
+                               variable=position_var, value=value,
+                               bg=self.parent.colors['bg_main'], 
+                               fg=self.parent.colors['text_light'])
+            btn.grid(row=i//3, column=i%3, padx=5, pady=2)
+        
+        # Color selection
+        color_frame = tk.Frame(common_frame, bg=self.parent.colors['bg_main'])
+        color_frame.pack(pady=10)
+        
+        tk.Label(color_frame, text="Color:", 
+                bg=self.parent.colors['bg_main'], fg=self.parent.colors['text_light']).pack(side=tk.LEFT)
+        
+        color_var = tk.StringVar(value="#FFFFFF")
+        color_entry = tk.Entry(color_frame, textvariable=color_var, width=10)
+        color_entry.pack(side=tk.LEFT, padx=5)
+        
+        color_btn = tk.Button(color_frame, text="Pick", width=5,
+                            command=lambda: self.pick_color(color_var))
+        color_btn.pack(side=tk.LEFT)
+        
+        # Buttons
+        button_frame = tk.Frame(dialog, bg=self.parent.colors['bg_main'])
+        button_frame.pack(pady=10)
+        
+        def apply_watermark():
+            params = {
+                'type': watermark_type.get(),
+                'position': position_var.get(),
+                'color': color_var.get(),
+                'opacity': opacity_slider.get()/100.0
+            }
+            
+            if watermark_type.get() == "text":
+                params.update({
+                    'text': text_entry.get(),
+                    'font_size': font_size_slider.get()
+                })
+            else:
+                params.update({
+                    'image_path': self.watermark_image_path,
+                    'scale': scale_slider.get()/100.0,
+                    'image_opacity': image_opacity_slider.get()/100.0
+                })
+            
+            # Apply to current image
+            result = self.apply_watermark(target_image, params)
+            
+            # Update in parent app
+            self.parent.save_state_for_undo()
+            self.parent.edited_image = result
+            self.parent.update_images()
+            
+            dialog.destroy()
+        
+        def preview_watermark():
+            params = {
+                'type': watermark_type.get(),
+                'position': position_var.get(),
+                'color': color_var.get(),
+                'opacity': opacity_slider.get()/100.0
+            }
+            
+            if watermark_type.get() == "text":
+                params.update({
+                    'text': text_entry.get(),
+                    'font_size': font_size_slider.get()
+                })
+            else:
+                if hasattr(self, 'watermark_image_path'):
+                    params.update({
+                        'image_path': self.watermark_image_path,
+                        'scale': scale_slider.get()/100.0,
+                        'image_opacity': image_opacity_slider.get()/100.0
+                    })
+            
+            preview = self.apply_watermark(target_image.copy(), params)
+            self.update_preview(preview)
+        
+        tk.Button(button_frame, text="Preview", 
+                 command=preview_watermark).pack(side=tk.LEFT, padx=5)
+        tk.Button(button_frame, text="Apply", 
+                 command=apply_watermark).pack(side=tk.LEFT, padx=5)
+        tk.Button(button_frame, text="Cancel", 
+                 command=dialog.destroy).pack(side=tk.LEFT, padx=5)
+        
+        # Initial preview
+        self.update_preview(target_image)
+        self.toggle_watermark_type("text", text_frame, image_frame)
+        
+    def toggle_watermark_type(self, wm_type, text_frame, image_frame):
+        """Hiển thị controls tương ứng với loại watermark"""
+        if wm_type == "text":
+            text_frame.pack(fill=tk.X, pady=5)
+            image_frame.pack_forget()
+        else:
+            image_frame.pack(fill=tk.X, pady=5)
+            text_frame.pack_forget()
+    
+    def select_watermark_image(self):
+        """Chọn ảnh làm watermark"""
+        file_path = filedialog.askopenfilename(
+            filetypes=[("Image files", "*.png *.jpg *.jpeg *.bmp")]
+        )
+        if file_path:
+            self.watermark_image_path = file_path
+    
+    def pick_color(self, color_var):
+        """Mở color picker"""
+        color = colorchooser.askcolor(title="Chọn màu watermark")
+        if color[1]:
+            color_var.set(color[1])
+    
+    def apply_watermark(self, image, params):
+        """Áp dụng watermark lên ảnh"""
+        if params['type'] == "text":
+            return self.apply_text_watermark(image, params)
+        else:
+            return self.apply_image_watermark(image, params)
+    
+    def apply_text_watermark(self, image, params):
+        """Áp dụng text watermark"""
+        from PIL import ImageDraw, ImageFont
+        
+        # Tạo bản copy
+        if image.mode != 'RGBA':
+            image = image.convert('RGBA')
+        
+        overlay = Image.new('RGBA', image.size, (0,0,0,0))
+        draw = ImageDraw.Draw(overlay)
+        
+        # Tìm font
+        try:
+            font = ImageFont.truetype("arial.ttf", params['font_size'])
+        except:
+            try:
+                font = ImageFont.truetype("DejaVuSans.ttf", params['font_size'])
+            except:
+                font = ImageFont.load_default()
+        
+        # Tính toán text size
+        text_bbox = draw.textbbox((0, 0), params['text'], font=font)
+        text_width = text_bbox[2] - text_bbox[0]
+        text_height = text_bbox[3] - text_bbox[1]
+        
+        # Tính toán vị trí
+        positions = self.calculate_position(image.size, (text_width, text_height), params['position'])
+        
+        # Chuyển hex color sang RGBA với opacity
+        hex_color = params['color'].lstrip('#')
+        rgb = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+        rgba = rgb + (int(255 * params['opacity']),)
+        
+        # Vẽ text ở tất cả vị trí
+        for pos in positions:
+            draw.text(pos, params['text'], font=font, fill=rgba)
+        
+        # Composite với ảnh gốc
+        return Image.alpha_composite(image, overlay)
+    
+    def apply_image_watermark(self, image, params):
+        """Áp dụng image watermark"""
+        if not hasattr(self, 'watermark_image_path') or not self.watermark_image_path:
+            return image
+        
+        # Mở watermark image
+        watermark = Image.open(self.watermark_image_path)
+        
+        # Convert to RGBA nếu cần
+        if watermark.mode != 'RGBA':
+            watermark = watermark.convert('RGBA')
+        
+        # Scale watermark
+        scale = params.get('scale', 0.5)
+        new_width = int(image.width * scale)
+        new_height = int(image.height * scale)
+        watermark.thumbnail((new_width, new_height), Image.Resampling.LANCZOS)
+        
+        # Apply opacity
+        if params.get('image_opacity', 1.0) < 1.0:
+            alpha = watermark.split()[3]
+            alpha = alpha.point(lambda p: p * params['image_opacity'])
+            watermark.putalpha(alpha)
+        
+        # Tính toán vị trí
+        positions = self.calculate_position(image.size, watermark.size, params['position'])
+        
+        # Tạo overlay
+        if image.mode != 'RGBA':
+            image = image.convert('RGBA')
+        
+        overlay = Image.new('RGBA', image.size, (0,0,0,0))
+        
+        # Paste watermark vào các vị trí
+        for pos in positions:
+            overlay.paste(watermark, pos, watermark)
+        
+        # Composite với ảnh gốc
+        return Image.alpha_composite(image, overlay)
+    
+    def calculate_position(self, image_size, watermark_size, position):
+        """Tính toán vị trí đặt watermark"""
+        img_width, img_height = image_size
+        wm_width, wm_height = watermark_size
+        
+        positions = []
+        
+        if position == "top-right":
+            positions.append((img_width - wm_width - 10, 10))
+        elif position == "top-center":
+            positions.append(((img_width - wm_width) // 2, 10))
+        elif position == "top-left":
+            positions.append((10, 10))
+        elif position == "middle-left":
+            positions.append((10, (img_height - wm_height) // 2))
+        elif position == "center":
+            positions.append(((img_width - wm_width) // 2, 
+                            (img_height - wm_height) // 2))
+        elif position == "middle-right":
+            positions.append((img_width - wm_width - 10, 
+                            (img_height - wm_height) // 2))
+        elif position == "bottom-left":
+            positions.append((10, img_height - wm_height - 10))
+        elif position == "bottom-center":
+            positions.append(((img_width - wm_width) // 2, 
+                            img_height - wm_height - 10))
+        elif position == "bottom-right":
+            positions.append((img_width - wm_width - 10, 
+                            img_height - wm_height - 10))
+        elif position == "tiled":
+            # Tiled pattern
+            spacing_x = wm_width + 20
+            spacing_y = wm_height + 20
+            for x in range(0, img_width, spacing_x):
+                for y in range(0, img_height, spacing_y):
+                    positions.append((x, y))
+        elif position == "diagonal":
+            # Diagonal pattern
+            spacing = max(wm_width, wm_height) + 50
+            for i in range(0, max(img_width, img_height) * 2, spacing):
+                x = i - wm_width
+                y = i - wm_height
+                if x < img_width and y < img_height:
+                    positions.append((x, y))
+        
+        return positions
+    
+    def update_preview(self, image):
+        """Cập nhật preview trên canvas"""
+        # Scale ảnh để fit canvas
+        canvas_width = self.preview_canvas.winfo_width()
+        canvas_height = self.preview_canvas.winfo_height()
+        
+        if canvas_width > 1 and canvas_height > 1:
+            img_ratio = image.width / image.height
+            canvas_ratio = canvas_width / canvas_height
+            
+            if img_ratio > canvas_ratio:
+                new_width = canvas_width
+                new_height = int(canvas_width / img_ratio)
+            else:
+                new_height = canvas_height
+                new_width = int(canvas_height * img_ratio)
+            
+            preview = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            photo = ImageTk.PhotoImage(preview)
+            
+            self.preview_canvas.delete("all")
+            self.preview_canvas.create_image(
+                canvas_width//2, canvas_height//2,
+                image=photo, anchor=tk.CENTER
+            )
+            self.preview_canvas.image = photo  # Keep reference
+
+
+class AIAssistant:
+    def __init__(self, parent):
+        self.parent = parent
+        self.suggestions = []
+        self.ai_models = {}
+        self.load_ai_models()
+    
+    def load_ai_models(self):
+        """Load các model AI (có thể là pretrained models)"""
+        # Có thể load từ thư mục models/
+        try:
+            # Ví dụ: Face detection model
+            self.face_cascade = cv2.CascadeClassifier(
+                cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+            )
+        except:
+            self.face_cascade = None
+    
+    def open_assistant_panel(self):
+        """Mở panel AI Assistant"""
+        assistant_window = tk.Toplevel(self.parent.root)
+        assistant_window.title("🤖 AI Assistant - Trợ lý thông minh")
+        assistant_window.geometry("400x600")
+        assistant_window.configure(bg=self.parent.colors['bg_main'])
+        
+        # Header với chatbot style
+        header_frame = tk.Frame(assistant_window, 
+                               bg=self.parent.colors['bg_button'],
+                               height=60)
+        header_frame.pack(fill=tk.X)
+        header_frame.pack_propagate(False)
+        
+        tk.Label(header_frame, text="🤖 AI Assistant", 
+                font=("Arial", 16, "bold"),
+                bg=self.parent.colors['bg_button'],
+                fg='white').pack(pady=15)
+        
+        # Chat area (suggestions)
+        chat_frame = tk.Frame(assistant_window, bg=self.parent.colors['bg_main'])
+        chat_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Canvas cho chat với scrollbar
+        chat_canvas = tk.Canvas(chat_frame, bg=self.parent.colors['bg_main'],
+                               highlightthickness=0)
+        scrollbar = tk.Scrollbar(chat_frame, orient="vertical", 
+                                command=chat_canvas.yview)
+        self.chat_container = tk.Frame(chat_canvas, bg=self.parent.colors['bg_main'])
+        
+        chat_canvas.configure(yscrollcommand=scrollbar.set)
+        chat_canvas.create_window((0, 0), window=self.chat_container, anchor="nw")
+        
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        chat_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        def configure_chat_scroll(event):
+            chat_canvas.configure(scrollregion=chat_canvas.bbox("all"))
+        
+        self.chat_container.bind("<Configure>", configure_chat_scroll)
+        
+        # Control panel
+        control_frame = tk.Frame(assistant_window, bg=self.parent.colors['bg_panel'])
+        control_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        # Nút analyze
+        tk.Button(control_frame, text=" Phân tích ảnh", 
+                 bg=self.parent.colors['success'], fg='white',
+                 command=self.analyze_image).pack(fill=tk.X, pady=5)
+        
+        # Nút auto-enhance
+        tk.Button(control_frame, text=" Tự động cải thiện", 
+                 bg=self.parent.colors['bg_button'], fg='white',
+                 command=self.auto_enhance).pack(fill=tk.X, pady=5)
+        
+        # Nút smart suggestions
+        tk.Button(control_frame, text=" Đề xuất thông minh", 
+                 bg=self.parent.colors['warning'], fg='white',
+                 command=self.get_smart_suggestions).pack(fill=tk.X, pady=5)
+        
+        # Loading indicator
+        self.loading_label = tk.Label(control_frame, text="", 
+                                     bg=self.parent.colors['bg_panel'],
+                                     fg=self.parent.colors['text_light'])
+        self.loading_label.pack(pady=5)
+        
+        self.assistant_window = assistant_window
+        self.chat_canvas = chat_canvas
+        
+        # Hiển thị welcome message
+        self.add_message("assistant", "Xin chào! Tôi là AI Assistant. Tôi có thể giúp bạn:")
+        self.add_message("assistant", "• Phân tích ảnh và đưa ra đề xuất")
+        self.add_message("assistant", "• Tự động cải thiện chất lượng ảnh")
+        self.add_message("assistant", "• Nhận diện đối tượng và khuôn mặt")
+        self.add_message("assistant", "Hãy nhấn 'Phân tích ảnh' để bắt đầu!")
+    
+    def add_message(self, sender, message, action=None):
+        """Thêm message vào chat"""
+        message_frame = tk.Frame(self.chat_container, 
+                                bg=self.parent.colors['bg_main'])
+        message_frame.pack(fill=tk.X, padx=5, pady=5, anchor="w" if sender == "assistant" else "e")
+        
+        # Bubble message
+        bubble_bg = self.parent.colors['bg_button'] if sender == "assistant" else self.parent.colors['success']
+        bubble_fg = 'white'
+        
+        bubble = tk.Label(message_frame, text=message,
+                         bg=bubble_bg, fg=bubble_fg,
+                         wraplength=300, justify="left",
+                         padx=15, pady=10,
+                         font=("Arial", 10))
+        bubble.pack(side=tk.LEFT if sender == "assistant" else tk.RIGHT)
+        
+        # Nếu có action
+        if action:
+            action_btn = tk.Button(message_frame, text="Áp dụng",
+                                  bg=self.parent.colors['accent'], fg='white',
+                                  command=action, padx=10, pady=5)
+            action_btn.pack(side=tk.RIGHT if sender == "assistant" else tk.LEFT, padx=5)
+        
+        # Auto scroll
+        self.chat_canvas.update_idletasks()
+        self.chat_canvas.yview_moveto(1.0)
+    
+    def analyze_image(self):
+        """Phân tích ảnh và đưa ra insights"""
+        if not self.parent.image:
+            self.add_message("assistant", "Vui lòng mở ảnh trước khi phân tích!")
+            return
+        
+        self.show_loading("Đang phân tích ảnh...")
+        
+        # Chạy trong thread để không block UI
+        thread = threading.Thread(target=self._perform_analysis)
+        thread.start()
+    
+    def _perform_analysis(self):
+        """Thực hiện phân tích"""
+        try:
+            # Chuyển sang numpy array
+            img_array = np.array(self.parent.edited_image)
+            
+            # 1. Basic image stats
+            height, width = img_array.shape[:2]
+            channels = 3 if len(img_array.shape) == 3 else 1
+            image_mode = "Color" if channels == 3 else "Grayscale"
+            
+            # 2. Brightness analysis
+            if channels == 3:
+                gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+            else:
+                gray = img_array
+            
+            brightness = np.mean(gray)
+            brightness_status = "Tối" if brightness < 85 else "Sáng" if brightness > 170 else "Bình thường"
+            
+            # 3. Contrast analysis
+            contrast = np.std(gray)
+            contrast_status = "Thấp" if contrast < 40 else "Cao" if contrast > 80 else "Tốt"
+            
+            # 4. Color analysis (nếu là ảnh màu)
+            if channels == 3:
+                # Tính độ bão hòa màu
+                hsv = cv2.cvtColor(img_array, cv2.COLOR_RGB2HSV)
+                saturation = np.mean(hsv[:, :, 1])
+                color_status = "Nhạt màu" if saturation < 50 else "Đậm màu" if saturation > 150 else "Cân bằng"
+            else:
+                color_status = "Ảnh đen trắng"
+            
+            # 5. Face detection
+            face_count = 0
+            if self.face_cascade and channels == 3:
+                faces = self.face_cascade.detectMultiScale(gray, 1.1, 4)
+                face_count = len(faces)
+            
+            # 6. Blur detection
+            blur_value = cv2.Laplacian(gray, cv2.CV_64F).var()
+            blur_status = "Mờ" if blur_value < 100 else "Nét"
+            
+            # 7. Noise estimation
+            noise = np.std(cv2.blur(gray, (3, 3)) - gray)
+            noise_status = "Nhiều nhiễu" if noise > 15 else "Ít nhiễu"
+            
+            # Hiển thị kết quả
+            self.parent.root.after(0, self.hide_loading)
+            
+            # Hiển thị insights
+            insights = [
+                f" **Phân tích ảnh hoàn tất**",
+                f"",
+                f" Kích thước: {width} × {height} px",
+                f" Loại: {image_mode}",
+                f"",
+                f" Độ sáng: {brightness:.1f}/255 ({brightness_status})",
+                f" Độ tương phản: {contrast:.1f} ({contrast_status})",
+                f" Màu sắc: {color_status}",
+                f" Độ nét: {blur_status} (score: {blur_value:.1f})",
+                f" Nhiễu: {noise_status}",
+                f"",
+                f" Phát hiện: {face_count} khuôn mặt" if face_count > 0 else "👤 Không phát hiện khuôn mặt",
+                f"",
+                f" **Đề xuất:**"
+            ]
+            
+            # Thêm đề xuất dựa trên phân tích
+            suggestions = []
+            
+            if brightness < 85:
+                suggestions.append("Tăng độ sáng để cải thiện chi tiết")
+            elif brightness > 170:
+                suggestions.append("Giảm độ sáng để tránh chói")
+                
+            if contrast < 40:
+                suggestions.append("Tăng độ tương phản để làm nổi bật chi tiết")
+            elif contrast > 80:
+                suggestions.append("Giảm độ tương phản để mềm mại hơn")
+                
+            if blur_value < 100:
+                suggestions.append("Áp dụng làm sắc nét để cải thiện độ nét")
+                
+            if noise > 15:
+                suggestions.append("Áp dụng khử nhiễu để làm sạch ảnh")
+            
+            if face_count > 0:
+                suggestions.append("Tự động chỉnh sửa khuôn mặt (làm mịn da, làm sáng mắt)")
+            
+            # Hiển thị insights
+            for insight in insights:
+                self.parent.root.after(0, lambda i=insight: self.add_message("assistant", i))
+            
+            for suggestion in suggestions:
+                self.parent.root.after(0, lambda s=suggestion: 
+                    self.add_message("assistant", f"• {s}"))
+            
+            # Nút auto-fix
+            if suggestions:
+                self.parent.root.after(0, lambda: self.add_message(
+                    "assistant", 
+                    "Bạn muốn tôi tự động áp dụng các cải thiện này không?",
+                    action=self.auto_fix_based_on_analysis
+                ))
+                
+        except Exception as e:
+            self.parent.root.after(0, self.hide_loading)
+            self.parent.root.after(0, lambda: self.add_message(
+                "assistant", f"Lỗi khi phân tích: {str(e)}"
+            ))
+    
+    def auto_fix_based_on_analysis(self):
+        """Tự động fix dựa trên phân tích"""
+        self.add_message("user", "Vâng, hãy tự động cải thiện ảnh!")
+        self.auto_enhance(smart=True)
+    
+    def get_smart_suggestions(self):
+        """Lấy đề xuất thông minh dựa trên nội dung ảnh"""
+        if not self.parent.image:
+            self.add_message("assistant", "Vui lòng mở ảnh trước!")
+            return
+        
+        self.show_loading("Đang phân tích nội dung ảnh...")
+        
+        thread = threading.Thread(target=self._generate_suggestions)
+        thread.start()
+    
+    def _generate_suggestions(self):
+        """Tạo đề xuất thông minh"""
+        try:
+            img_array = np.array(self.parent.edited_image)
+            
+            # Phân loại ảnh đơn giản dựa trên màu sắc và histogram
+            if len(img_array.shape) == 3:
+                # Phân tích histogram màu
+                hist_r = cv2.calcHist([img_array], [0], None, [256], [0, 256])
+                hist_g = cv2.calcHist([img_array], [1], None, [256], [0, 256])
+                hist_b = cv2.calcHist([img_array], [2], None, [256], [0, 256])
+                
+                # Xác định loại ảnh
+                avg_r = np.mean(hist_r[100:200])  # Vùng màu ấm
+                avg_g = np.mean(hist_g[50:150])   # Vùng màu xanh lá
+                avg_b = np.mean(hist_b[150:250])  # Vùng màu xanh dương
+                
+                # Phân loại
+                if avg_r > avg_g * 1.5 and avg_r > avg_b * 1.5:
+                    image_type = "portrait"  # Ảnh chân dung (màu ấm)
+                elif avg_g > avg_r * 1.5 and avg_g > avg_b * 1.5:
+                    image_type = "landscape"  # Ảnh phong cảnh (nhiều xanh lá)
+                elif avg_b > avg_r * 1.5 and avg_b > avg_g * 1.5:
+                    image_type = "seascape"  # Ảnh biển/trời (nhiều xanh dương)
+                else:
+                    image_type = "general"
+            else:
+                image_type = "grayscale"
+            
+            # Đề xuất theo loại ảnh
+            suggestions_map = {
+                "portrait": [
+                    "Làm mịn da tự động",
+                    "Làm sáng mắt",
+                    "Tẩy mụn và khuyết điểm",
+                    "Tăng độ ấm màu da",
+                    "Làm mờ hậu cảnh nhẹ",
+                    "Tạo hiệu ứng bokeh"
+                ],
+                "landscape": [
+                    "Tăng độ bão hòa màu xanh lá",
+                    "Tăng cường chi tiết mây",
+                    "Hiệu chỉnh đường chân trời",
+                    "Tạo hiệu ứng HDR",
+                    "Tăng độ tương phản tổng thể",
+                    "Áp dụng filter 'Golden Hour'"
+                ],
+                "seascape": [
+                    "Tăng độ xanh của nước biển",
+                    "Làm nổi bật sóng biển",
+                    "Hiệu chỉnh màu trời",
+                    "Tạo hiệu ứng phản chiếu",
+                    "Tăng chi tiết mây",
+                    "Áp dụng filter 'Ocean Blue'"
+                ],
+                "grayscale": [
+                    "Tăng độ tương phản mạnh",
+                    "Thêm grain film cổ điển",
+                    "Hiệu ứng vignette",
+                    "Tô màu tự động bằng AI",
+                    "Tăng chi tiết texture",
+                    "Áp dụng filter 'Noir'"
+                ],
+                "general": [
+                    "Cân bằng trắng tự động",
+                    "Tăng độ sắc nét thông minh",
+                    "Giảm nhiễu màu",
+                    "Cải thiện dynamic range",
+                    "Hiệu chỉnh perspective",
+                    "Áp dụng filter 'Auto Enhance'"
+                ]
+            }
+            
+            self.parent.root.after(0, self.hide_loading)
+            
+            # Hiển thị kết quả
+            self.parent.root.after(0, lambda: self.add_message(
+                "assistant", f" **Phân tích:** Ảnh của bạn có vẻ là {image_type}"
+            ))
+            
+            self.parent.root.after(0, lambda: self.add_message(
+                "assistant", " **Đề xuất cho bạn:**"
+            ))
+            
+            suggestions = suggestions_map.get(image_type, suggestions_map["general"])
+            for i, suggestion in enumerate(suggestions[:5]):  # Hiển thị 5 đề xuất đầu
+                self.parent.root.after(0, lambda s=suggestion, idx=i: 
+                    self.add_message("assistant", f"{idx+1}. {s}"))
+            
+            # Nút áp dụng tất cả
+            self.parent.root.after(0, lambda: self.add_message(
+                "assistant",
+                "Áp dụng tất cả đề xuất cho ảnh này?",
+                action=lambda: self.apply_all_suggestions(image_type)
+            ))
+            
+        except Exception as e:
+            self.parent.root.after(0, self.hide_loading)
+            self.parent.root.after(0, lambda: self.add_message(
+                "assistant", f"Lỗi khi tạo đề xuất: {str(e)}"
+            ))
+    
+    def apply_all_suggestions(self, image_type):
+        """Áp dụng tất cả đề xuất cho loại ảnh"""
+        self.add_message("user", "Áp dụng tất cả đề xuất!")
+        
+        # Preset cho từng loại ảnh
+        presets = {
+            "portrait": {
+                'brightness': 1.1,
+                'contrast': 1.15,
+                'saturation': 1.05,
+                'sharpen': 1.2,
+                'filter': 'Làm Mịn',
+                'skin_smooth': True
+            },
+            "landscape": {
+                'brightness': 1.0,
+                'contrast': 1.25,
+                'saturation': 1.3,
+                'sharpen': 1.3,
+                'filter': 'Chi Tiết',
+                'vibrance': 1.2
+            },
+            "seascape": {
+                'brightness': 1.05,
+                'contrast': 1.2,
+                'saturation': 1.25,
+                'sharpen': 1.25,
+                'filter': 'Tăng Cạnh',
+                'blue_boost': True
+            }
+        }
+        
+        preset = presets.get(image_type, presets["general"])
+        
+        # Áp dụng preset
+        self.parent.save_state_for_undo()
+        
+        # Cập nhật adjustments
+        for key, value in preset.items():
+            if key in self.parent.adjustments:
+                self.parent.adjustments[key] = value
+        
+        # Reapply
+        self.parent.reapply_adjustments()
+        self.add_message("assistant", " Đã áp dụng tất cả đề xuất!")
+    
+    def auto_enhance(self, smart=False):
+        """Tự động cải thiện ảnh"""
+        if not self.parent.image:
+            self.add_message("assistant", "Vui lòng mở ảnh trước!")
+            return
+        
+        self.show_loading("Đang cải thiện ảnh...")
+        
+        thread = threading.Thread(target=self._perform_auto_enhance, args=(smart,))
+        thread.start()
+    
+    def _perform_auto_enhance(self, smart=False):
+        """Thực hiện auto enhance"""
+        try:
+            self.parent.root.after(0, self.parent.save_state_for_undo)
+            
+            if smart:
+                # Smart enhance dựa trên phân tích
+                img_array = np.array(self.parent.edited_image)
+                
+                # Adaptive enhancement based on image content
+                if len(img_array.shape) == 3:
+                    # Màu sắc
+                    hsv = cv2.cvtColor(img_array, cv2.COLOR_RGB2HSV)
+                    
+                    # Tăng saturation thông minh
+                    saturation = np.mean(hsv[:, :, 1])
+                    if saturation < 80:
+                        hsv[:, :, 1] = np.clip(hsv[:, :, 1] * 1.3, 0, 255)
+                    
+                    # Cân bằng value (brightness)
+                    value = np.mean(hsv[:, :, 2])
+                    if value < 100:
+                        hsv[:, :, 2] = np.clip(hsv[:, :, 2] * 1.2, 0, 255)
+                    elif value > 180:
+                        hsv[:, :, 2] = np.clip(hsv[:, :, 2] * 0.9, 0, 255)
+                    
+                    img_array = cv2.cvtColor(hsv, cv2.COLOR_HSV2RGB)
+                
+                # Adaptive sharpening
+                gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY) if len(img_array.shape) == 3 else img_array
+                blur_value = cv2.Laplacian(gray, cv2.CV_64F).var()
+                
+                if blur_value < 150:
+                    # Apply smart sharpening
+                    kernel = np.array([[-1, -1, -1],
+                                      [-1, 9, -1],
+                                      [-1, -1, -1]])
+                    img_array = cv2.filter2D(img_array, -1, kernel)
+                
+                # Adaptive contrast
+                if len(img_array.shape) == 3:
+                    lab = cv2.cvtColor(img_array, cv2.COLOR_RGB2LAB)
+                    l, a, b = cv2.split(lab)
+                    
+                    # CLAHE (Contrast Limited Adaptive Histogram Equalization)
+                    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+                    l = clahe.apply(l)
+                    
+                    lab = cv2.merge((l, a, b))
+                    img_array = cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
+                
+                self.parent.root.after(0, lambda: self._update_image_from_array(img_array))
+                
+            else:
+                # Basic auto enhance
+                self.parent.root.after(0, self.parent.ai_auto_edit)
+            
+            self.parent.root.after(0, self.hide_loading)
+            self.parent.root.after(0, lambda: self.add_message(
+                "assistant", " Đã hoàn thành cải thiện ảnh tự động!"
+            ))
+            
+        except Exception as e:
+            self.parent.root.after(0, self.hide_loading)
+            self.parent.root.after(0, lambda: self.add_message(
+                "assistant", f"Lỗi khi cải thiện ảnh: {str(e)}"
+            ))
+    
+    def _update_image_from_array(self, img_array):
+        """Cập nhật ảnh từ numpy array"""
+        self.parent.edited_image = Image.fromarray(img_array)
+        self.parent.update_images()
+    
+    def show_loading(self, message):
+        """Hiển thị loading indicator"""
+        self.parent.root.after(0, lambda: self.loading_label.config(text=message))
+    
+    def hide_loading(self):
+        """Ẩn loading indicator"""
+        self.parent.root.after(0, lambda: self.loading_label.config(text=""))
+
+
